@@ -42,6 +42,7 @@ Official and community software, firmware, post-processors, mods, workholding, g
 - [Carvera Controller](https://github.com/MakeraInc/CarveraController) - Official open-source controller for Carvera and Carvera Air on desktop and mobile.
 - [Carvera Controller Community](https://github.com/Carvera-Community/Carvera_Controller) - Open-source community fork of the controller with advanced probing, pendant support and many fixes.
 - [Makera App](https://apps.apple.com/us/app/makera-cnc-maker-hub/id6758646579) - Official mobile companion app for machine access and browsing Makerables projects, also on Android.
+- [OpenSpindle](https://github.com/openspindle/openspindle) - Open-source desktop app for setting up, simulating and running Z1 jobs, with probing, Fusion 360 import and PCB prep; early alpha.
 
 ## Firmware
 
