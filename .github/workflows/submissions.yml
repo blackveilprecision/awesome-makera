@@ -5,6 +5,12 @@ name: Submissions
 on:
   issues:
     types: [opened, edited, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to check again
+        required: true
+        type: number
 
 permissions:
   contents: write
@@ -13,15 +19,21 @@ permissions:
   copilot-requests: write
 
 concurrency:
-  group: submission-${{ github.event.issue.number }}
+  group: submission-${{ github.event.issue.number || inputs.issue }}
 
 jobs:
   process:
-    # Label names here must match "submission", "update" and "approved" in .github/awesome-bot.json.
+    # Runs for issues made with either form, recognised by label or by the form's headings (GitHub only
+    # applies a form's label once the label exists), when a maintainer adds `approved`, or when started
+    # by hand from the Actions tab. Label names must match .github/awesome-bot.json.
     if: >-
-      (contains(github.event.issue.labels.*.name, 'submission') ||
-       contains(github.event.issue.labels.*.name, 'entry update')) &&
-      (github.event.action != 'labeled' || github.event.label.name == 'approved')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'approved') ||
+      (github.event.action != 'labeled' && (
+        contains(github.event.issue.labels.*.name, 'submission') ||
+        contains(github.event.issue.labels.*.name, 'entry update') ||
+        (contains(github.event.issue.body, '### Link') && contains(github.event.issue.body, '### Category')) ||
+        contains(github.event.issue.body, '### What should happen?')))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,7 +47,7 @@ jobs:
       - name: Check submission or update request
         run: python3 -m awesome_bot process-issue --issue "$ISSUE"
         env:
-          ISSUE: ${{ github.event.issue.number }}
+          ISSUE: ${{ github.event.issue.number || inputs.issue }}
           PYTHONPATH: .github/scripts
           GITHUB_TOKEN: ${{ github.token }}
           # Optional: bill AI usage to a specific Copilot seat instead (fine-grained PAT, "Copilot Requests" permission).

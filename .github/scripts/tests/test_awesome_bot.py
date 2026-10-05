@@ -175,6 +175,11 @@ class FormTests(unittest.TestCase):
         self.assertIn(f"- {forms.ACTION_CHANGE}", update)
         self.assertIn(f"- {forms.ACTION_REMOVE}", update)
 
+    def test_detect_form(self):
+        self.assertEqual(forms.detect_form(self.BODY), "submission")
+        self.assertEqual(forms.detect_form(update_body()), "update")
+        self.assertIsNone(forms.detect_form("Just a question about the list."))
+
     def test_parse_update(self):
         body = ("### Entry\n\nhttps://alpha.example.com\n\n### What should happen?\n\nRemove it from the list\n\n"
                 "### New link\n\n_No response_\n\n### New section\n\nNone\n\n### Why?\n\nArchived.\n")
@@ -288,6 +293,17 @@ class ProcessIssueTests(unittest.TestCase):
         gh = self.make(self.body(), labels=("submission", "approved"))
         self.run_issue(gh, verdict="reject", confidence=0.9, link_ok=None)
         self.assertEqual(len(gh.prs), 1)
+
+    def test_form_issue_without_label_is_labelled_and_processed(self):
+        gh = self.make(self.body(), labels=())
+        cfg = self.run_issue(gh)
+        self.assertIn(cfg.label("submission"), gh.labels_added)
+        self.assertEqual(len(gh.prs), 1)
+
+    def test_plain_issue_is_ignored(self):
+        gh = self.make("Just a question about the list.", labels=())
+        self.run_issue(gh)
+        self.assertEqual((gh.prs, gh.comments, gh.labels_added), ([], [], []))
 
     def test_unknown_category(self):
         gh = self.make(self.body(category="Nope"))

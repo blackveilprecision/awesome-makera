@@ -54,13 +54,19 @@ def process_issue(cfg, gh, number, force=False):
     """Check a submission issue, post the result, and open a PR when it's approved."""
     issue = gh.get_issue(number)
     labels = {l["name"] for l in issue["labels"]}
-    is_update = cfg.label("update") in labels
-    if "pull_request" in issue or issue["state"] != "open" or not (is_update or cfg.label("submission") in labels):
+    kind = ("update" if cfg.label("update") in labels else
+            "submission" if cfg.label("submission") in labels else
+            forms.detect_form(issue.get("body")))
+    if "pull_request" in issue or issue["state"] != "open" or not kind:
         print(f"#{number} is not an open submission or update request; nothing to do.")
         return
     force = force or cfg.label("approved") in labels
     ensure_labels(cfg, gh)
-    if is_update:
+    if cfg.label(kind) not in labels:
+        # GitHub only applies an issue form's label if the label already exists, so add it ourselves.
+        gh.add_labels(number, [cfg.label(kind)])
+        labels.add(cfg.label(kind))
+    if kind == "update":
         return process_update(cfg, gh, issue, labels, force)
 
     sub = forms.parse_submission(issue.get("body"))

@@ -89,6 +89,16 @@ def parse_update(body):
     return request
 
 
+def detect_form(body):
+    """Which of our issue forms produced this body: "submission", "update" or None."""
+    fields = {k.casefold() for k in parse_issue_form(body)}
+    if {UPDATE_LABELS["entry"].casefold(), UPDATE_LABELS["action"].casefold()} <= fields:
+        return "update"
+    if {FIELD_LABELS["url"].casefold(), FIELD_LABELS["category"].casefold()} <= fields:
+        return "submission"
+    return None
+
+
 def _quote(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 

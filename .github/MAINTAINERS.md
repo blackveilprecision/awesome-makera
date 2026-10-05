@@ -101,7 +101,7 @@ Each submission or update request (and each edit of one) uses one Copilot reques
 
 ## Troubleshooting
 
-- **The bot never comments:** check the Actions tab. Make sure the issue has the `submission` label (the form adds it) and that workflows are enabled.
+- **The bot never comments:** check the Actions tab and make sure workflows are enabled. The bot recognises issues made with either form even if their label is missing. To re-check any issue by hand, open Actions → **Submissions** → **Run workflow** and enter the issue number.
 - **"Automated review was unavailable":** Copilot isn't reachable with the current token or plan. The comment includes the CLI's error. See setup step 2.
 - **"Couldn't open a pull request":** see setup step 1.
 - **awesome-lint fails on "github" rules:** add the repository description and topics (setup step 3).
