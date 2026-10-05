@@ -10,9 +10,10 @@ Official and community software, firmware, post-processors, mods, workholding, g
 
 - [Official Resources](#official-resources)
 - [Machines](#machines)
-- [Software](#software)
+- [Controllers & Apps](#controllers--apps)
 - [Firmware](#firmware)
 - [CAM & Post-Processors](#cam--post-processors)
+- [Macros & Utilities](#macros--utilities)
 - [Accessories](#accessories)
 - [Upgrades & Printable Mods](#upgrades--printable-mods)
 - [Tooling & Workholding](#tooling--workholding)
@@ -35,15 +36,12 @@ Official and community software, firmware, post-processors, mods, workholding, g
 - [Makera Z1](https://www.makera.com/products/makera-z1-desktop-cnc) - Entry-level die-cast desktop CNC with quick tool changer, camera and auto probing, sold in Z1 and Z1 Pro variants.
 - [Makera Z1 vs Z1 Pro](https://www.makera.com/blogs/cnc-buying-guide/makera-z1-vs-z1-pro) - Official comparison of the Z1 and the Z1 Pro, which adds closed-loop steppers and ball screws.
 
-## Software
+## Controllers & Apps
 
-- [BVP Z1-Macros](https://github.com/blackveilprecision/z1-macros) - Open-source G-code utilities for leveling stock, tool changes, and other Z1 workflow tasks.
 - [Carve Control](https://github.com/GridSpace/carve-control) - Open-source web-based controller and network proxy for remote access to Carvera machines.
 - [Carvera Controller](https://github.com/MakeraInc/CarveraController) - Official open-source controller for Carvera and Carvera Air on desktop and mobile.
 - [Carvera Controller Community](https://github.com/Carvera-Community/Carvera_Controller) - Open-source community fork of the controller with advanced probing, pendant support and many fixes.
 - [Makera App](https://apps.apple.com/us/app/makera-cnc-maker-hub/id6758646579) - Official mobile companion app for machine access and browsing Makerables projects, also on Android.
-- [MakeraCAM](https://www.makera.com/pages/makera-cam) - Official free CAM for the Carvera series, from 2D and PCB milling to 3D carving.
-- [Makera Studio](https://www.makera.com/pages/software) - Official free CAM, simulation and machine-control suite for Carvera, Carvera Air and Z1, succeeding MakeraCAM.
 
 ## Firmware
 
@@ -59,6 +57,12 @@ Official and community software, firmware, post-processors, mods, workholding, g
 - [Community HSM Tool Library](https://github.com/Carvera-Community/Carvera_Community_Profiles/releases/tag/toollibraries) - Makera shop cutters in HSMLib format for import into Fusion, SolidWorks and HSMAdvisor.
 - [EasyCAM5000](https://github.com/RicardoJCMarques/EasyCAM5000) - Open-source browser-based CAM for PCB and 2.5D/3D milling with a community-tested Makera post.
 - [Kiri:Moto](https://grid.space/kiri/) - Open-source browser-based CAM and slicer that includes Carvera and Carvera Air device profiles.
+- [MakeraCAM](https://www.makera.com/pages/makera-cam) - Official free CAM for the Carvera series, from 2D and PCB milling to 3D carving.
+- [Makera Studio](https://www.makera.com/pages/software) - Official free CAM, simulation and machine-control suite for Carvera, Carvera Air and Z1, succeeding MakeraCAM.
+
+## Macros & Utilities
+
+- [BVP Z1-Macros](https://github.com/blackveilprecision/z1-macros) - Open-source G-code utilities for leveling stock, tool changes, and other Z1 workflow tasks.
 
 ## Accessories
 

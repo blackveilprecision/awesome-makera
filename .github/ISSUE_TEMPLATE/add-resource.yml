@@ -34,9 +34,10 @@ body:
         # categories:start
         - "Official Resources"
         - "Machines"
-        - "Software"
+        - "Controllers & Apps"
         - "Firmware"
         - "CAM & Post-Processors"
+        - "Macros & Utilities"
         - "Accessories"
         - "Upgrades & Printable Mods"
         - "Tooling & Workholding"
