@@ -1,0 +1,34 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: List format, order, duplicates and issue-form sync
+        run: python3 -m awesome_bot validate
+        env:
+          PYTHONPATH: .github/scripts
+
+      - name: Bot unit tests
+        run: python3 -m unittest discover -s .github/scripts/tests
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: awesome-lint
+        run: npx --yes awesome-lint@2 README.md
+        env:
+          github_token: ${{ github.token }}

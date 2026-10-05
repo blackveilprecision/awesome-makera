@@ -1,0 +1,31 @@
+name: Fix or remove an entry
+description: Report a broken link, outdated description, wrong category or an entry that no longer belongs.
+title: "Update: "
+labels: ["entry update"]
+body:
+  - type: input
+    id: entry
+    attributes:
+      label: Entry
+      description: Name of the entry as it appears in the list.
+    validations:
+      required: true
+  - type: dropdown
+    id: problem
+    attributes:
+      label: What's wrong?
+      options:
+        - Broken or moved link
+        - Description is wrong or outdated
+        - Wrong category
+        - Project is abandoned or no longer relevant
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: The new link, a better description, or anything else that helps.
+    validations:
+      required: false

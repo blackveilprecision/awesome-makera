@@ -1,0 +1,97 @@
+name: Suggest a resource
+description: Suggest a project, mod, guide, channel or community for the list. A bot checks it and opens the pull request for you.
+title: "Add: "
+labels: ["submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping grow the list! Fill in the fields below. A bot checks the link, looks for duplicates, runs an automated relevance review, and posts the result as a comment. If it looks good, the bot opens the pull request for you. No Git needed.
+
+        You can edit this issue at any time to fix something. The bot re-checks it automatically.
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: The name of the project, tool, guide, channel or community.
+      placeholder: Carvera Community Controller
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Link
+      description: Direct link to the official site, repository or page. No affiliate links or URL shorteners.
+      placeholder: https://github.com/Carvera-Community/Carvera_Controller
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Where should it go? These options are generated from the README sections.
+      options:
+        # categories:start
+        - "Official Resources"
+        - "Machines"
+        - "Software"
+        - "Firmware"
+        - "CAM & Post-Processors"
+        - "Accessories"
+        - "Upgrades & Printable Mods"
+        - "Tooling & Workholding"
+        - "Guides & Tutorials"
+        - "Videos"
+        - "Communities"
+        - "Related Lists"
+        - "Not sure (let the bot suggest one)"
+        # categories:end
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: One sentence describing what it is. Don't start with "A" or the name itself. The bot may tidy the wording.
+      placeholder: Community-developed, open-source controller software for Carvera machines.
+    validations:
+      required: true
+  - type: dropdown
+    id: pricing
+    attributes:
+      label: Pricing
+      options:
+        - Open source
+        - Free (closed source)
+        - Freemium / free tier
+        - Paid / commercial
+        - Not applicable (guide, channel, community)
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why does it belong on the list?
+      description: What makes it useful or notable for Makera owners?
+    validations:
+      required: false
+  - type: dropdown
+    id: affiliation
+    attributes:
+      label: Affiliation
+      description: Self-promotion is fine if the resource is genuinely useful, but please disclose it.
+      options:
+        - I'm not affiliated with it
+        - I made it or work on it
+        - I sell it or work for the company behind it
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the list and open issues, and this isn't already there.
+          required: true
+        - label: The link goes straight to the resource (not an affiliate, marketplace or shortened link).
+          required: true

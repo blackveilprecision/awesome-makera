@@ -1,0 +1,42 @@
+# Weekly dead-link check. Opens (or updates) a single "Broken links" issue when something fails.
+name: Link check
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check links
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress --max-retries 3 --timeout 30
+            --accept 200..=299,403,429
+            README.md contributing.md
+          output: lychee-report.md
+          fail: false
+
+      - name: Open or update the broken-links issue
+        if: steps.lychee.outputs.exit_code != 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "broken links" --color B60205 --description "Reported by the weekly link check" 2>/dev/null || true
+          existing=$(gh issue list --label "broken links" --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file lychee-report.md
+          else
+            gh issue create --title "Broken links" --label "broken links" --body-file lychee-report.md
+          fi

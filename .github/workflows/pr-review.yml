@@ -1,0 +1,46 @@
+# Advisory review of pull requests from contributors: README checks, link checks, and an AI relevance
+# review of each added entry, posted as a single comment plus a label. It never merges anything.
+#
+# Security: pull_request_target runs with a write token, so this workflow only ever checks out the
+# base branch. The PR's README is fetched through the API and treated purely as data.
+name: PR review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  copilot-requests: write
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Base branch only (the default for pull_request_target). Never check out the PR head here.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Review pull request
+        run: python3 -m awesome_bot review-pr --pr "$PR"
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          PYTHONPATH: .github/scripts
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          COPILOT_PROVIDER_BASE_URL: ${{ vars.COPILOT_PROVIDER_BASE_URL }}
+          COPILOT_PROVIDER_TYPE: ${{ vars.COPILOT_PROVIDER_TYPE }}
+          COPILOT_PROVIDER_API_KEY: ${{ secrets.COPILOT_PROVIDER_API_KEY }}
+          COPILOT_MODEL: ${{ vars.COPILOT_MODEL }}

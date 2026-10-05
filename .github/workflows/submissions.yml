@@ -1,0 +1,46 @@
+# Checks resources suggested through the "Suggest a resource" issue form, posts the result,
+# and opens a pull request adding approved entries. See MAINTAINERS.md.
+name: Submissions
+
+on:
+  issues:
+    types: [opened, edited, reopened, labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  copilot-requests: write
+
+concurrency:
+  group: submission-${{ github.event.issue.number }}
+
+jobs:
+  process:
+    # Label names here must match "submission" and "approved" in .github/awesome-bot.json.
+    if: >-
+      contains(github.event.issue.labels.*.name, 'submission') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'approved')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Check submission
+        run: python3 -m awesome_bot process-issue --issue "$ISSUE"
+        env:
+          ISSUE: ${{ github.event.issue.number }}
+          PYTHONPATH: .github/scripts
+          GITHUB_TOKEN: ${{ github.token }}
+          # Optional: bill AI usage to a specific Copilot seat instead (fine-grained PAT, "Copilot Requests" permission).
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          # Optional: use your own model provider instead of Copilot. See MAINTAINERS.md.
+          COPILOT_PROVIDER_BASE_URL: ${{ vars.COPILOT_PROVIDER_BASE_URL }}
+          COPILOT_PROVIDER_TYPE: ${{ vars.COPILOT_PROVIDER_TYPE }}
+          COPILOT_PROVIDER_API_KEY: ${{ secrets.COPILOT_PROVIDER_API_KEY }}
+          COPILOT_MODEL: ${{ vars.COPILOT_MODEL }}

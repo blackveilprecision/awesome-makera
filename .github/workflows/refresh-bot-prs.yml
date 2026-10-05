@@ -1,0 +1,31 @@
+# When the list changes, rebuild any open bot PRs on top of it so they never go stale or conflict.
+name: Refresh bot PRs
+
+on:
+  push:
+    branches: [main]
+    paths: [README.md]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: refresh-bot-prs
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Rebase open bot PRs
+        run: python3 -m awesome_bot refresh-prs
+        env:
+          PYTHONPATH: .github/scripts
+          GITHUB_TOKEN: ${{ github.token }}
