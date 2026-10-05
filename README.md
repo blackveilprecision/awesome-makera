@@ -117,6 +117,7 @@ Official and community software, firmware, post-processors, mods, workholding, g
 - [Makerables](https://www.makerables.com/) - Official project-sharing platform with free CNC project files for Carvera, Carvera Air and Z1.
 - [Makera Community](https://www.makera.com/pages/community) - Official hub linking to Makera's community groups and channels.
 - [Makera Discord](https://discord.com/invite/NQ5r9jGNXV) - Server for discussing, sharing and troubleshooting projects on Makera machines.
+- [r/Makera](https://www.reddit.com/r/Makera/) - Community subreddit for Makera machines and the projects people make with them.
 
 ## Related Lists
 
