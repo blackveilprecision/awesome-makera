@@ -171,28 +171,50 @@ def run_copilot(prompt, model="", timeout=300):
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()
         raise AIError(f"Copilot CLI exited with {result.returncode}: {' '.join(detail[-3:])[:300]}")
+    if not result.stdout.strip():
+        detail = result.stderr.strip().splitlines()
+        raise AIError(f"Copilot CLI returned no reply: {' '.join(detail[-3:])[:300] or 'no output at all'}")
     return result.stdout
 
 
+def _log_reply(reply):
+    print("::group::Copilot reply that wasn't valid JSON")
+    print(reply[:4000])
+    print("::endgroup::")
+
+
 def chat_json(system, user, model=""):
-    return parse_json_object(run_copilot(f"{system}\n\n{user}", model))
+    prompt = f"{system}\n\n{user}"
+    reply = run_copilot(prompt, model)
+    try:
+        return parse_json_object(reply)
+    except AIError:
+        _log_reply(reply)
+    reply = run_copilot(f"{prompt}\n\nRespond with only the JSON object described above: no other text, no code fences.", model)
+    try:
+        return parse_json_object(reply)
+    except AIError:
+        _log_reply(reply)
+        raise
 
 
 def parse_json_object(text):
-    text = (text or "").strip()
-    try:
-        value = json.loads(text)
-    except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end <= start:
-            raise AIError("Model reply was not JSON")
+    """First JSON object in the reply that has a "verdict" (falling back to the first object at all)."""
+    text = text or ""
+    decoder = json.JSONDecoder(strict=False)  # tolerate raw newlines inside strings
+    first = None
+    for start in (i for i, ch in enumerate(text) if ch == "{"):
         try:
-            value = json.loads(text[start:end + 1])
-        except json.JSONDecodeError as e:
-            raise AIError("Model reply was not JSON") from e
-    if not isinstance(value, dict):
-        raise AIError("Model reply was not a JSON object")
-    return value
+            value, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            if "verdict" in value:
+                return value
+            first = first or value
+    if first is not None:
+        return first
+    raise AIError("Model reply was not JSON")
 
 
 def clean_note(text, limit=240):

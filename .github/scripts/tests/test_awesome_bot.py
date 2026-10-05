@@ -191,8 +191,18 @@ class FormTests(unittest.TestCase):
 class AITests(unittest.TestCase):
     def test_parse_json_object(self):
         self.assertEqual(ai.parse_json_object('```json\n{"verdict": "approve"}\n```'), {"verdict": "approve"})
-        with self.assertRaises(ai.AIError):
-            ai.parse_json_object("no json here")
+        messy = 'Sure! {not json} Here it is:\n{"verdict": "reject", "reasons": ["line\nbreak"]}\nHope that helps {:)}'
+        self.assertEqual(ai.parse_json_object(messy)["verdict"], "reject")
+        for bad in ("no json here", ""):
+            with self.assertRaises(ai.AIError):
+                ai.parse_json_object(bad)
+
+    def test_chat_json_retries_once(self):
+        replies = iter(["I think this is relevant.", '{"verdict": "approve"}'])
+        with mock.patch.object(ai, "run_copilot", side_effect=lambda *a: next(replies)) as run, \
+             mock.patch("builtins.print"):
+            self.assertEqual(ai.chat_json("s", "u"), {"verdict": "approve"})
+        self.assertEqual(run.call_count, 2)
 
     def test_assess_sanitises_model_output(self):
         cfg = config.load()
