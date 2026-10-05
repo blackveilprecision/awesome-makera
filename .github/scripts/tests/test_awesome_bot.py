@@ -201,7 +201,7 @@ class AITests(unittest.TestCase):
         replies = iter(["I think this is relevant.", '{"verdict": "approve"}'])
         with mock.patch.object(ai, "run_copilot", side_effect=lambda *a: next(replies)) as run, \
              mock.patch("builtins.print"):
-            self.assertEqual(ai.chat_json("s", "u"), {"verdict": "approve"})
+            self.assertEqual(ai.chat_json("s", "u"), ({"verdict": "approve"}, 2))
         self.assertEqual(run.call_count, 2)
 
     def test_assess_sanitises_model_output(self):
@@ -211,7 +211,7 @@ class AITests(unittest.TestCase):
             "description": "the [best](http://spam) tool", "reasons": ["ping @someone <b>"], "concerns": "oops",
         }
         sub = forms.Submission(name="X", url="https://x.example.com", category="Software")
-        with mock.patch.object(ai, "chat_json", return_value=reply):
+        with mock.patch.object(ai, "chat_json", return_value=(reply, 1)):
             a = ai.assess(cfg, sub, ["Software", "CAM"], [], None)
         self.assertEqual((a.verdict, a.confidence, a.category), ("approve", 1.0, "Software"))
         self.assertEqual(a.description, "Best tool.")

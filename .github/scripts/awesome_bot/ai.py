@@ -11,8 +11,10 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 
+from . import log
 from .readme import normalize_description
 
 VERDICTS = ("approve", "needs_review", "reject")
@@ -148,6 +150,8 @@ class Assessment:
     concerns: list = field(default_factory=list)
     model: str = ""
     error: str = ""
+    attempts: int = 0
+    seconds: float = 0.0
 
 
 def run_copilot(prompt, model="", timeout=300):
@@ -177,25 +181,24 @@ def run_copilot(prompt, model="", timeout=300):
     return result.stdout
 
 
-def _log_reply(reply):
-    print("::group::Copilot reply that wasn't valid JSON")
-    print(reply[:4000])
-    print("::endgroup::")
+def _log_reply(attempt, reply):
+    log.section(f"Copilot reply {attempt} wasn't valid JSON", [reply[:4000]], collapsed=False)
 
 
 def chat_json(system, user, model=""):
+    """Run the prompt and return (parsed JSON object, attempts used). Retries once on an unreadable reply."""
     prompt = f"{system}\n\n{user}"
     reply = run_copilot(prompt, model)
     try:
-        return parse_json_object(reply)
+        return parse_json_object(reply), 1
     except AIError:
-        _log_reply(reply)
+        _log_reply(1, reply)
     reply = run_copilot(f"{prompt}\n\nRespond with only the JSON object described above: no other text, no code fences.", model)
     try:
-        return parse_json_object(reply)
+        return parse_json_object(reply), 2
     except AIError:
-        _log_reply(reply)
-        raise
+        _log_reply(2, reply)
+        raise AIError("Model reply was not JSON (2 attempts)")
 
 
 def parse_json_object(text):
@@ -277,10 +280,13 @@ def assess_change(cfg, old, new, request, categories, old_link, new_link):
 
 
 def _run(cfg, system, user, categories, category):
+    log.section("Copilot prompt (data part; the instructions are in ai.py)", [user])
+    started = time.monotonic()
     try:
-        raw = chat_json(system, user, cfg.model)
+        raw, attempts = chat_json(system, user, cfg.model)
     except AIError as e:
-        return Assessment(category=category, model=cfg.model or "auto", error=str(e))
+        return Assessment(category=category, model=cfg.model or "auto", error=str(e),
+                          attempts=2 if "2 attempts" in str(e) else 1, seconds=time.monotonic() - started)
 
     verdict = str(raw.get("verdict", "")).strip().lower()
     try:
@@ -297,4 +303,6 @@ def _run(cfg, system, user, categories, category):
         reasons=as_list(raw.get("reasons")),
         concerns=as_list(raw.get("concerns")),
         model=cfg.model or "auto",
+        attempts=attempts,
+        seconds=time.monotonic() - started,
     )

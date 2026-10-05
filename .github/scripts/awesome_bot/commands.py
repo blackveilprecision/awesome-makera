@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from . import ai, forms, readme
+from . import ai, forms, log, readme
 from .config import REPO_ROOT
 from .gh import GitHub, GitHubError
 from .links import check_url, is_shortener, is_valid_url, normalize_url
@@ -15,6 +15,13 @@ AUTOMATION_PATHS = (".github/",)
 
 STATUS_LABELS = ("needs_changes", "ai_approved", "ai_needs_review", "ai_rejected")
 TRUSTED_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
+STATUS_TEXT = {
+    "approved": "approved by a maintainer",
+    "ai_approved": "approved by the automated review",
+    "ai_needs_review": "needs a maintainer's review",
+    "ai_rejected": "rejected by the automated review",
+    "needs_changes": "needs changes from the submitter",
+}
 LABEL_STYLE = {
     "submission": ("0e8a16", "New resource suggested through the issue form"),
     "approved": ("1d76db", "Maintainer approved: the bot will open a PR adding it"),
@@ -45,6 +52,21 @@ def set_status_label(cfg, gh, number, current_labels, status_key):
         gh.add_labels(number, [wanted])
 
 
+def report(title, status, pr, merged, entry_lines, problems, notes, comment):
+    """Final result in the Actions log, plus the full bot comment on the run's summary page."""
+    rows = [("Result", STATUS_TEXT[status])]
+    if pr:
+        rows.append(("Pull request", f"{pr.get('html_url') or '#' + str(pr['number'])} ({'merged' if merged else 'open'})"))
+    if entry_lines:
+        rows.append(("Entry", "\n".join(entry_lines)))
+    if problems:
+        rows.append(("Problems", problems))
+    if notes:
+        rows.append(("Notes", notes))
+    log.section(f"Result for {title}", rows, collapsed=False)
+    log.summary(f"## {title}: {STATUS_TEXT[status]}\n\n{comment}")
+
+
 def match_category(value, categories):
     return next((c for c in categories if c.casefold() == (value or "").strip().casefold()), None)
 
@@ -73,6 +95,13 @@ def process_issue(cfg, gh, number, force=False):
         notes.append(f"The issue was edited after approval, so the `{approved}` label was removed. "
                      "A maintainer needs to approve the new version.")
     force = force or approved in labels
+    log.section(f"Issue #{number} · {'update request' if kind == 'update' else 'new submission'}", [
+        ("Title", issue.get("title", "")),
+        ("Author", f"{issue['user']['login']} ({issue.get('author_association', 'unknown')})"),
+        ("Triggered by", f"{os.environ.get('EVENT_ACTION') or 'manual run'} by {os.environ.get('EVENT_SENDER') or 'unknown'}"),
+        ("Labels", ", ".join(sorted(labels)) or "(none)"),
+        ("Approved", "yes, by a maintainer" if force else "no"),
+    ], collapsed=False)
     if cfg.label(kind) not in labels:
         # GitHub only applies an issue form's label if the label already exists, so add it ourselves.
         gh.add_labels(number, [cfg.label(kind)])
@@ -81,6 +110,8 @@ def process_issue(cfg, gh, number, force=False):
         return process_update(cfg, gh, issue, labels, force, notes)
 
     sub = forms.parse_submission(issue.get("body"))
+    log.section("Form", [("Name", sub.name), ("Link", sub.url), ("Category", sub.category), ("Pricing", sub.pricing),
+                         ("Affiliation", sub.affiliation), ("Description", sub.description), ("Why", sub.why)])
     base = gh.default_branch()
     readme_text, _ = gh.get_file(cfg.readme, base)
     doc = readme.Readme(readme_text, cfg.meta_sections)
@@ -109,11 +140,19 @@ def process_issue(cfg, gh, number, force=False):
             (notes if force else problems).append(f"The link looks broken ({link.error}).")
         elif link.ok is None:
             notes.append(f"Couldn't verify the link automatically ({link.error}), so a maintainer will check it.")
+    log.section("Checks", [
+        ("Duplicate", f"yes: {duplicate.name} in {duplicate.section}" if duplicate else "none"),
+        ("Category", section or f"{sub.category} (Copilot will suggest one)"),
+        *log.link_rows("Link", link, url),
+        ("Problems", problems),
+    ])
 
     assessment = None
     if not problems:
         existing = [e.name for e in doc.section(section).entries] if section else [e.name for e in doc.entries()]
         assessment = ai.assess(cfg, sub, categories, existing, link)
+    log.assessment_section("Copilot review", assessment)
+    if assessment:
         if assessment.error:
             notes.append(f"Automated review was unavailable: {ai.clean_note(assessment.error)}")
         if not section:
@@ -159,8 +198,9 @@ def process_issue(cfg, gh, number, force=False):
     set_status_label(cfg, gh, number, labels, None if status == "approved" else status)
     if duplicate:
         gh.add_labels(number, [cfg.label("duplicate")])
-    gh.upsert_comment(number, TRIAGE_MARKER, render_triage(cfg, status, proposal, problems, notes, assessment, link, pr, merged))
-    print(f"#{number}: {status}" + (f", PR #{pr['number']}" if pr else ""))
+    comment = render_triage(cfg, status, proposal, problems, notes, assessment, link, pr, merged)
+    gh.upsert_comment(number, TRIAGE_MARKER, comment)
+    report(f"issue #{number}", status, pr, merged, [proposal.render()] if proposal else [], problems, notes, comment)
 
 
 def close_stale_pr(cfg, gh, number):
@@ -285,6 +325,9 @@ def process_update(cfg, gh, issue, labels, force, notes):
     """Check a "Fix or remove an entry" request, post the result, and open a PR when it's approved."""
     number = issue["number"]
     request = forms.parse_update(issue.get("body"))
+    log.section("Form", [("Entry", request.entry), ("Action", request.action), ("New link", request.new_url),
+                         ("New name", request.new_name), ("New section", request.new_section),
+                         ("New description", request.new_description), ("Why", request.reason)])
     base = gh.default_branch()
     readme_text, _ = gh.get_file(cfg.readme, base)
     doc = readme.Readme(readme_text, cfg.meta_sections)
@@ -333,10 +376,18 @@ def process_update(cfg, gh, issue, labels, force, notes):
                 notes.append(f"Couldn't verify the new link automatically ({new_link.error}).")
         if old_link.ok is False:
             notes.append(f"The current link is broken ({old_link.error}).")
+    log.section("Checks", [
+        ("Matched", old.render() + f"  [{old.section}]" if old else f"{len(matches)} entries"),
+        *(log.link_rows("Current link", old_link, old.url) if old else []),
+        *(log.link_rows("New link", new_link, new.url) if new and new_link else []),
+        ("Problems", problems),
+    ])
 
     assessment = None
     if not problems:
         assessment = ai.assess_change(cfg, old, new, request, categories, old_link, new_link)
+    log.assessment_section("Copilot review", assessment)
+    if assessment:
         if assessment.error:
             notes.append(f"Automated review was unavailable: {ai.clean_note(assessment.error)}")
         if new and request.new_description.strip() and assessment.description:
@@ -378,9 +429,10 @@ def process_update(cfg, gh, issue, labels, force, notes):
         close_stale_pr(cfg, gh, number)
 
     set_status_label(cfg, gh, number, labels, None if status == "approved" else status)
-    gh.upsert_comment(number, TRIAGE_MARKER, render_update(
-        cfg, status, old, new, removing, problems, notes, assessment, old_link, new_link, pr, merged))
-    print(f"#{number}: {status}" + (f", PR #{pr['number']}" if pr else ""))
+    comment = render_update(cfg, status, old, new, removing, problems, notes, assessment, old_link, new_link, pr, merged)
+    gh.upsert_comment(number, TRIAGE_MARKER, comment)
+    change = ([f"- {old.render()}"] + ([f"+ {new.render()}"] if new else [])) if old and not problems else []
+    report(f"issue #{number}", status, pr, merged, change, problems, notes, comment)
 
 
 def _change_block(old, new):
@@ -507,7 +559,11 @@ def review_pr(cfg, gh, number):
             why=(pr.get("body") or "")[:1200], affiliation="unknown",
         )
         existing = [e.name for e in section.entries if e is not entry]
-        results.append((entry, link, ai.assess(cfg, sub, categories, existing, link)))
+        log.section(f"Added entry: {entry.name}", [("Entry", entry.render()), ("Section", entry.section),
+                                                   *log.link_rows("Link", link, entry.url)])
+        assessment = ai.assess(cfg, sub, categories, existing, link)
+        log.assessment_section(f"Copilot review: {entry.name}", assessment)
+        results.append((entry, link, assessment))
 
     broken = any(link.ok is False for _, link, _ in results)
     rejected = any(a.verdict == "reject" for *_, a in results)
@@ -525,8 +581,10 @@ def review_pr(cfg, gh, number):
         status = "ai_needs_review"
 
     set_status_label(cfg, gh, number, labels, status)
-    gh.upsert_comment(number, REVIEW_MARKER, render_review(status, errors, warnings, results, added, removed, automation))
-    print(f"PR #{number}: {status}")
+    comment = render_review(status, errors, warnings, results, added, removed, automation)
+    gh.upsert_comment(number, REVIEW_MARKER, comment)
+    report(f"PR #{number}", status, None, False, [e.render() for e in added], [p.message for p in errors],
+           [f"Changes automation files: {', '.join(automation)}"] if automation else [], comment)
 
 
 def render_review(status, errors, warnings, results, added, removed, automation):
