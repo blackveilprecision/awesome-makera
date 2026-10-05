@@ -1,4 +1,5 @@
-# Weekly dead-link check. Opens (or updates) a single "Broken links" issue when something fails.
+# Weekly dead-link check. Opens (or updates) a single "Broken links" issue when something fails,
+# and closes it again once a later run passes (sites sometimes error out for a day).
 name: Link check
 
 on:
@@ -40,3 +41,12 @@ jobs:
           else
             gh issue create --title "Broken links" --label "broken links" --body-file lychee-report.md
           fi
+
+      - name: Close the broken-links issue once everything passes again
+        if: steps.lychee.outputs.exit_code == 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label "broken links" --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --reason completed --comment "The latest link check passed, so this is resolved. If no one changed the links, the earlier failure was a temporary error on the site's side."
+          done
