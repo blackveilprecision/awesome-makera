@@ -82,6 +82,9 @@ class GitHub:
         else:
             self.request("POST", self.r("/git/refs"), {"ref": f"refs/heads/{branch}", "sha": sha})
 
+    def merge_base(self, base, head):
+        return self.request("GET", self.r(f"/compare/{base}...{head}"))["merge_base_commit"]["sha"]
+
     def put_file(self, path, branch, text, sha, message):
         self.request("PUT", self.r(f"/contents/{path}"), {
             "message": message,

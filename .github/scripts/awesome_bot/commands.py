@@ -22,6 +22,7 @@ LABEL_STYLE = {
     "ai_rejected": ("e99695", "Automated review: doesn't look like a fit"),
     "needs_changes": ("d93f0b", "Something needs fixing before this can be added"),
     "duplicate": ("cfd3d7", "Already on the list"),
+    "update": ("5319e7", "Request to fix or remove an existing entry"),
 }
 
 
@@ -53,11 +54,14 @@ def process_issue(cfg, gh, number, force=False):
     """Check a submission issue, post the result, and open a PR when it's approved."""
     issue = gh.get_issue(number)
     labels = {l["name"] for l in issue["labels"]}
-    if "pull_request" in issue or issue["state"] != "open" or cfg.label("submission") not in labels:
-        print(f"#{number} is not an open submission; nothing to do.")
+    is_update = cfg.label("update") in labels
+    if "pull_request" in issue or issue["state"] != "open" or not (is_update or cfg.label("submission") in labels):
+        print(f"#{number} is not an open submission or update request; nothing to do.")
         return
     force = force or cfg.label("approved") in labels
     ensure_labels(cfg, gh)
+    if is_update:
+        return process_update(cfg, gh, issue, labels, force)
 
     sub = forms.parse_submission(issue.get("body"))
     base = gh.default_branch()
@@ -127,14 +131,13 @@ def process_issue(cfg, gh, number, force=False):
     pr, merged = None, False
     if status in ("approved", "ai_approved") and (force or cfg.auto_open_pr):
         try:
-            pr, merged = open_entry_pr(cfg, gh, issue, proposal, assessment, link, base)
+            title = f"Add {proposal.name}"
+            body = render_pr_body(proposal, issue, assessment, link)
+            pr, merged = open_bot_pr(cfg, gh, number, base, [], [proposal], title, f"{title} to {proposal.section}", body)
         except (ValueError, GitHubError) as e:
             notes.append(f"Couldn't open a pull request: {ai.clean_note(e, 400)}. Maintainers: see MAINTAINERS.md.")
     elif status not in ("approved", "ai_approved"):
-        stale = gh.find_open_pr(f"{cfg.bot_branch_prefix}{number}")
-        if stale:
-            gh.comment(stale["number"], f"Closing: the submission in #{number} no longer passes review.")
-            gh.update_pr(stale["number"], state="closed")
+        close_stale_pr(cfg, gh, number)
 
     set_status_label(cfg, gh, number, labels, None if status == "approved" else status)
     if duplicate:
@@ -143,31 +146,38 @@ def process_issue(cfg, gh, number, force=False):
     print(f"#{number}: {status}" + (f", PR #{pr['number']}" if pr else ""))
 
 
-def open_entry_pr(cfg, gh, issue, entry, assessment, link, base):
-    number = issue["number"]
+def close_stale_pr(cfg, gh, number):
+    stale = gh.find_open_pr(f"{cfg.bot_branch_prefix}{number}")
+    if stale:
+        gh.comment(stale["number"], f"Closing: the request in #{number} no longer passes review.")
+        gh.update_pr(stale["number"], state="closed")
+
+
+def open_bot_pr(cfg, gh, number, base, removed, added, title, commit_title, body, allow_merge=True):
+    """Apply removed/added entries to the latest default branch on the issue's bot branch and open (or update) its PR."""
     base_sha = gh.branch_sha(base)
     base_text, _ = gh.get_file(cfg.readme, base_sha)  # read at the exact commit the branch will start from
-    if base_doc_entry := readme.Readme(base_text, cfg.meta_sections).find_url(entry.url):
-        raise ValueError(f"it was just added to the list as {base_doc_entry.name}")
-    new_text = readme.insert_entry(base_text, entry.section, entry.name, entry.url, entry.description, cfg.meta_sections)
+    new_text, missing = readme.apply_entry_diff(base_text, removed, added, cfg.meta_sections)
+    if missing:
+        raise ValueError(f"{missing[0].name} changed on the list in the meantime; edit the issue to re-check")
+    if new_text == base_text:
+        raise ValueError("the list already includes this change")
     errors = readme.new_errors(base_text, new_text, cfg.max_description_length, cfg.meta_sections)
     if errors:
-        raise ValueError("adding the entry would break README checks: " + "; ".join(p.message for p in errors))
+        raise ValueError("the change would break README checks: " + "; ".join(p.message for p in errors))
 
     branch = f"{cfg.bot_branch_prefix}{number}"
     gh.point_branch(branch, base_sha)
     _, file_sha = gh.get_file(cfg.readme, branch)
-    title = f"Add {entry.name}"
-    gh.put_file(cfg.readme, branch, new_text, file_sha, f"{title} to {entry.section}\n\nCloses #{number}")
+    gh.put_file(cfg.readme, branch, new_text, file_sha, f"{commit_title}\n\nCloses #{number}")
 
-    body = render_pr_body(entry, issue, assessment, link)
     pr = gh.find_open_pr(branch)
     if pr:
         gh.update_pr(pr["number"], title=title, body=body)
     else:
         pr = gh.create_pr(title, branch, base, body)
     merged = False
-    if cfg.auto_merge:
+    if cfg.auto_merge and allow_merge:
         try:
             gh.merge_pr(pr["number"], f"{title} (#{pr['number']})")
             merged = True
@@ -249,6 +259,191 @@ def render_pr_body(entry, issue, assessment, link):
             "",
         ]
     out.append("_Opened automatically by the awesome-bot workflow from an issue submission._")
+    return "\n".join(out)
+
+
+# --------------------------------------------------------------------------- update requests
+
+def process_update(cfg, gh, issue, labels, force):
+    """Check a "Fix or remove an entry" request, post the result, and open a PR when it's approved."""
+    number = issue["number"]
+    request = forms.parse_update(issue.get("body"))
+    base = gh.default_branch()
+    readme_text, _ = gh.get_file(cfg.readme, base)
+    doc = readme.Readme(readme_text, cfg.meta_sections)
+    categories = doc.category_titles
+    problems, notes = [], []
+
+    matches = readme.find_entries(doc, request.entry)
+    old = matches[0] if len(matches) == 1 else None
+    if not matches:
+        problems.append("Couldn't find that entry. Paste its link exactly as it appears in the list, or its exact name.")
+    elif len(matches) > 1:
+        problems.append("More than one entry has that name. Paste the entry's link instead.")
+    removing = request.removing
+    if not removing and request.action.strip().casefold() != forms.ACTION_CHANGE.casefold():
+        problems.append("Choose what should happen: change the entry or remove it.")
+
+    new = None
+    if old and not removing and not problems:
+        url = request.new_url.strip().strip("<>") or old.url
+        section = old.section
+        if request.new_section:
+            section = match_category(request.new_section, categories)
+            if not section:
+                problems.append(f"Unknown **New section** \"{ai.clean_note(request.new_section, 80)}\".")
+        if url != old.url:
+            if not is_valid_url(url):
+                problems.append("**New link** must be a full URL starting with `https://`.")
+            elif is_shortener(url):
+                problems.append("Please use the direct link instead of a shortened one.")
+            elif (other := doc.find_url(url)) and other.line != old.line:
+                problems.append(f"That link is already on the list as [{other.name}]({other.url}).")
+        description = (readme.normalize_description(request.new_description, cfg.max_description_length)
+                       if request.new_description.strip() else old.description)
+        new = readme.Entry(readme.sanitize_name(request.new_name) or old.name, url, description, -1, section or old.section)
+        if new.render() == old.render() and new.section == old.section:
+            problems.append("Nothing would change. Fill in at least one of the **New** fields.")
+
+    old_link = new_link = None
+    if old and not problems:
+        old_link = check_url(old.url)
+        if new and new.url != old.url:
+            new_link = check_url(new.url)
+            if new_link.ok is False:
+                (notes if force else problems).append(f"The new link looks broken ({new_link.error}).")
+            elif new_link.ok is None:
+                notes.append(f"Couldn't verify the new link automatically ({new_link.error}).")
+        if old_link.ok is False:
+            notes.append(f"The current link is broken ({old_link.error}).")
+
+    assessment = None
+    if not problems:
+        assessment = ai.assess_change(cfg, old, new, request, categories, old_link, new_link)
+        if assessment.error:
+            notes.append(f"Automated review was unavailable: {ai.clean_note(assessment.error)}")
+        if new and request.new_description.strip() and assessment.description:
+            new.description = assessment.description
+        if new and assessment.category and assessment.category != new.section:
+            notes.append(f"Automated review suggests **{assessment.category}** for this entry.")
+        if new:
+            entry_problems = readme.check_entry(new.name, new.url, new.description, cfg.max_description_length)
+            problems += [p.message for p in entry_problems if p.level == "error"]
+            notes += [p.message for p in entry_problems if p.level == "warning"]
+
+    links_ok = new_link is None or new_link.ok
+    if problems:
+        status = "needs_changes"
+    elif force:
+        status = "approved"
+    elif removing and old_link.ok is False and assessment.verdict != "reject":
+        status = "ai_approved"  # the resource is verifiably gone
+    elif (assessment.verdict == "approve" and not assessment.error and links_ok
+          and assessment.confidence >= cfg.auto_approve_min_confidence):
+        status = "ai_approved"
+    elif assessment.verdict == "reject":
+        status = "ai_rejected"
+    else:
+        status = "ai_needs_review"
+
+    pr, merged = None, False
+    if status in ("approved", "ai_approved") and (force or cfg.auto_open_pr):
+        verb = "Remove" if removing else ("Move" if new.section != old.section and new.render() == old.render() else "Update")
+        title = f"{verb} {old.name}" + (f" to {new.section}" if verb == "Move" else "")
+        body = render_update_pr_body(old, new, issue, request, assessment, old_link, new_link)
+        try:
+            # Removals are never merged automatically, so a bad-faith request always reaches a human.
+            pr, merged = open_bot_pr(cfg, gh, number, base, [old], [new] if new else [], title, title, body,
+                                     allow_merge=not removing)
+        except (ValueError, GitHubError) as e:
+            notes.append(f"Couldn't open a pull request: {ai.clean_note(e, 400)}. Maintainers: see MAINTAINERS.md.")
+    elif status not in ("approved", "ai_approved"):
+        close_stale_pr(cfg, gh, number)
+
+    set_status_label(cfg, gh, number, labels, None if status == "approved" else status)
+    gh.upsert_comment(number, TRIAGE_MARKER, render_update(
+        cfg, status, old, new, removing, problems, notes, assessment, old_link, new_link, pr, merged))
+    print(f"#{number}: {status}" + (f", PR #{pr['number']}" if pr else ""))
+
+
+def _change_block(old, new):
+    lines = ["```diff", f"- {old.render()}"]
+    if new:
+        lines.append(f"+ {new.render()}")
+    lines.append("```")
+    if new and new.section != old.section:
+        lines.append(f"Moves it from **{old.section}** to **{new.section}**.")
+    return lines
+
+
+def render_update(cfg, status, old, new, removing, problems, notes, assessment, old_link, new_link, pr, merged):
+    approved = cfg.label("approved")
+    headline = {
+        "approved": "✅ Approved by a maintainer.",
+        "ai_approved": "✅ This change looks right.",
+        "ai_needs_review": "🔍 A maintainer needs to take a look.",
+        "ai_rejected": "🚫 This change doesn't look justified.",
+        "needs_changes": "✏️ A few things need fixing first.",
+    }[status]
+    if pr and merged:
+        headline += f" Done in #{pr['number']}. Thank you!"
+    elif pr:
+        headline += f" Opened #{pr['number']} with the change."
+    elif status == "ai_approved":
+        headline += f" A maintainer will add the `{approved}` label to apply it."
+
+    out = ["### Update check", "", f"**{headline}**", ""]
+    if old and (new or removing) and not problems:
+        out += [f"Proposed change in **{old.section}**:", ""] + _change_block(old, new) + [""]
+    if problems:
+        out += ["**Needs fixing**", ""] + [f"- {p}" for p in problems] + [""]
+    checks = []
+    if old_link:
+        checks.append(f"{'✅' if old_link.ok else '⚠️' if old_link.ok is None else '❌'} Current link {old_link.summary()}")
+    if new_link:
+        checks.append(f"{'✅' if new_link.ok else '⚠️' if new_link.ok is None else '❌'} New link {new_link.summary()}")
+    checks += [f"⚠️ {n}" for n in notes]
+    if checks:
+        out += ["**Checks**", ""] + [f"- {c}" for c in checks] + [""]
+    if assessment and not assessment.error:
+        verdict = assessment.verdict.replace("_", " ")
+        out += [f"**Automated review** · `{assessment.model}` · verdict: *{verdict}* · confidence {assessment.confidence:.2f}", ""]
+        out += [f"- {r}" for r in assessment.reasons] + [f"- ⚠️ {c}" for c in assessment.concerns] + [""]
+    out += [
+        "<details><summary>What happens next?</summary>",
+        "",
+        "- **Requester:** edit the issue to fix anything above. The bot re-checks on every edit.",
+        f"- **Maintainers:** add the `{approved}` label to accept it (the bot opens the PR), or close the issue to decline.",
+        "- Removals are never merged automatically. A maintainer always confirms them.",
+        "",
+        "</details>",
+    ]
+    return "\n".join(out)
+
+
+def render_update_pr_body(old, new, issue, request, assessment, old_link, new_link):
+    action = f"Removes **{old.name}** from" if new is None else f"Updates **{old.name}** in"
+    out = [f"{action} **{old.section}**.", ""] + _change_block(old, new) + [
+        "",
+        f"Closes #{issue['number']}. Requested by @{issue['user']['login']}.",
+        "",
+        f"> **Reason given:** {ai.clean_note(request.reason, 500) or 'none'}",
+        "",
+    ]
+    if assessment and not assessment.error:
+        out += [
+            "<details><summary>Automated review</summary>",
+            "",
+            f"- Verdict: *{assessment.verdict.replace('_', ' ')}* (confidence {assessment.confidence:.2f}, `{assessment.model}`)",
+            *[f"- {r}" for r in assessment.reasons],
+            *[f"- ⚠️ {c}" for c in assessment.concerns],
+            f"- Current link: {old_link.summary() if old_link else 'not checked'}",
+            *([f"- New link: {new_link.summary()}"] if new_link else []),
+            "",
+            "</details>",
+            "",
+        ]
+    out.append("_Opened automatically by the awesome-bot workflow from an update request._")
     return "\n".join(out)
 
 
@@ -359,24 +554,30 @@ def refresh_bot_prs(cfg, gh):
     base = gh.default_branch()
     main_sha = gh.branch_sha(base)
     main_text, _ = gh.get_file(cfg.readme, main_sha)
-    main_doc = readme.Readme(main_text, cfg.meta_sections)
     for pr in gh.open_prs():
         head_repo = (pr["head"].get("repo") or {}).get("full_name")
         branch = pr["head"]["ref"]
         if head_repo != gh.repo or not branch.startswith(cfg.bot_branch_prefix):
             continue
-        head_text, _ = gh.get_file(cfg.readme, pr["head"]["sha"])
-        added = [e for e in readme.Readme(head_text, cfg.meta_sections).entries() if not main_doc.find_url(e.url)]
-        if not added:
-            gh.comment(pr["number"], "Closing: this entry is already on the list.")
+        head_sha = pr["head"]["sha"]
+        before_text, _ = gh.get_file(cfg.readme, gh.merge_base(main_sha, head_sha))
+        head_text, _ = gh.get_file(cfg.readme, head_sha)
+        removed, added = readme.diff_entries(before_text, head_text, cfg.meta_sections)
+        try:
+            new_text, missing = readme.apply_entry_diff(main_text, removed, added, cfg.meta_sections)
+        except ValueError as e:
+            missing, problem = [], str(e)
+        else:
+            problem = f"{missing[0].name} changed on the list in the meantime" if missing else ""
+        if not problem and new_text == main_text:
+            gh.comment(pr["number"], "Closing: the list already includes this change.")
             gh.update_pr(pr["number"], state="closed")
             continue
-        new_text = main_text
-        try:
-            for e in added:
-                new_text = readme.insert_entry(new_text, e.section, e.name, e.url, e.description, cfg.meta_sections)
-        except ValueError as e:
-            gh.comment(pr["number"], f"Couldn't rebase this entry automatically: {e}. A maintainer needs to fix it.")
+        if not problem and (errors := readme.new_errors(main_text, new_text, cfg.max_description_length, cfg.meta_sections)):
+            problem = "; ".join(p.message for p in errors)
+        if problem:
+            gh.comment(pr["number"], f"Couldn't rebase this change automatically ({problem}). "
+                                     "Edit the original issue to re-run it, or a maintainer can fix the branch.")
             continue
         if new_text == head_text:
             continue
@@ -390,21 +591,25 @@ def refresh_bot_prs(cfg, gh):
 
 def validate_local(cfg, apply_fix=False):
     readme_path = REPO_ROOT / cfg.readme
-    form_path = REPO_ROOT / cfg.issue_form
     text = readme_path.read_text(encoding="utf-8")
-    form = form_path.read_text(encoding="utf-8")
     if apply_fix:
         text = readme.fix(text, cfg.meta_sections)
         readme_path.write_text(text, encoding="utf-8")
-        form = forms.sync_form_categories(form, readme.Readme(text, cfg.meta_sections).category_titles)
-        form_path.write_text(form, encoding="utf-8")
+    categories = readme.Readme(text, cfg.meta_sections).category_titles
 
     problems = readme.validate(text, cfg.max_description_length, cfg.meta_sections)
-    expected = [*readme.Readme(text, cfg.meta_sections).category_titles, forms.NOT_SURE]
-    if forms.form_categories(form) != expected:
-        problems.append(readme.Problem(
-            f"Category dropdown in {cfg.issue_form} doesn't match the README sections. "
-            "Run `python3 -m awesome_bot validate --fix`."))
+    for form_file, extra in ((cfg.issue_form, (forms.NOT_SURE,)), (cfg.update_form, ())):
+        form_path = REPO_ROOT / form_file
+        if not form_path.exists():
+            continue
+        form = form_path.read_text(encoding="utf-8")
+        if apply_fix:
+            form = forms.sync_form_categories(form, categories, extra)
+            form_path.write_text(form, encoding="utf-8")
+        if forms.form_categories(form) != [*categories, *extra]:
+            problems.append(readme.Problem(
+                f"Category dropdown in {form_file} doesn't match the README sections. "
+                "Run `python3 -m awesome_bot validate --fix`."))
 
     in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
     for p in problems:

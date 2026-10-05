@@ -3,6 +3,7 @@
   "scope": "Makera desktop CNC machines (the Carvera, Carvera Air, Z1 and any newer Makera models) and everything specific to them: official and community software, controllers and firmware, MakeraCAM and other CAM workflows for these machines (post-processors, tool libraries, Fusion/Vectric/FreeCAD setups), upgrades, accessories and printable mods, tooling and workholding, the automatic tool changer, probing, 4th axis and laser module, feeds and speeds, project files, guides, videos and communities. Out of scope: generic CNC content with no Makera angle (that belongs in Awesome CNC), unrelated 3D printing, resellers, marketplace or affiliate links, and link shorteners.",
   "readme": "README.md",
   "issue_form": ".github/ISSUE_TEMPLATE/add-resource.yml",
+  "update_form": ".github/ISSUE_TEMPLATE/update-entry.yml",
   "meta_sections": [
     "Contents",
     "Contributing",
@@ -21,6 +22,7 @@
     "ai_needs_review": "ai: needs review",
     "ai_rejected": "ai: rejected",
     "needs_changes": "needs changes",
-    "duplicate": "duplicate"
+    "duplicate": "duplicate",
+    "update": "entry update"
   }
 }

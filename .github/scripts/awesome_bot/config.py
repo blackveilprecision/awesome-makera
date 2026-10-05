@@ -14,6 +14,7 @@ class Config:
     scope: str
     readme: str = "README.md"
     issue_form: str = ".github/ISSUE_TEMPLATE/add-resource.yml"
+    update_form: str = ".github/ISSUE_TEMPLATE/update-entry.yml"
     meta_sections: list = field(default_factory=lambda: ["Contents", "Contributing", "Footnotes"])
     model: str = ""  # Copilot CLI model name; empty = "auto"
     max_description_length: int = 160

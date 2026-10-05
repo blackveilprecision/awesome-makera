@@ -14,6 +14,18 @@ FIELD_LABELS = {
     "affiliation": "Affiliation",
 }
 NOT_SURE = "Not sure (let the bot suggest one)"
+# Labels of the fields in .github/ISSUE_TEMPLATE/update-entry.yml.
+UPDATE_LABELS = {
+    "entry": "Entry",
+    "action": "What should happen?",
+    "new_url": "New link",
+    "new_name": "New name",
+    "new_description": "New description",
+    "new_section": "New section",
+    "reason": "Why?",
+}
+ACTION_CHANGE = "Change it"
+ACTION_REMOVE = "Remove it from the list"
 NO_RESPONSE = "_No response_"
 CATEGORIES_START = "# categories:start"
 CATEGORIES_END = "# categories:end"
@@ -46,9 +58,35 @@ def parse_issue_form(body):
     return {k: ("" if v == NO_RESPONSE else v) for k, v in fields.items()}
 
 
-def parse_submission(body):
+@dataclass
+class UpdateRequest:
+    entry: str = ""
+    action: str = ""
+    new_url: str = ""
+    new_name: str = ""
+    new_description: str = ""
+    new_section: str = ""
+    reason: str = ""
+
+    @property
+    def removing(self):
+        return self.action.strip().casefold() == ACTION_REMOVE.casefold()
+
+
+def _fields(body, labels, cls):
     raw = {k.casefold(): v for k, v in parse_issue_form(body).items()}
-    return Submission(**{key: raw.get(label.casefold(), "") for key, label in FIELD_LABELS.items()})
+    return cls(**{key: raw.get(label.casefold(), "") for key, label in labels.items()})
+
+
+def parse_submission(body):
+    return _fields(body, FIELD_LABELS, Submission)
+
+
+def parse_update(body):
+    request = _fields(body, UPDATE_LABELS, UpdateRequest)
+    if request.new_section.strip().casefold() == "none":  # unselected optional dropdown
+        request.new_section = ""
+    return request
 
 
 def _quote(value):
@@ -77,8 +115,8 @@ def form_categories(form_text):
     return values
 
 
-def sync_form_categories(form_text, categories):
+def sync_form_categories(form_text, categories, extra=(NOT_SURE,)):
     lines, start, end = _marker_lines(form_text)
     indent = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
-    options = [f"{indent}- {_quote(c)}" for c in [*categories, NOT_SURE]]
+    options = [f"{indent}- {_quote(c)}" for c in [*categories, *extra]]
     return "\n".join(lines[: start + 1] + options + lines[end:])

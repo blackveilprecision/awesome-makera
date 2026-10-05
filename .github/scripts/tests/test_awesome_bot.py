@@ -99,6 +99,29 @@ class ReadmeTests(unittest.TestCase):
         after = readme.insert_entry(dup, "Software", "Aardvark", "https://aardvark.example.com", "First.", META)
         self.assertEqual(readme.new_errors(dup, after, 160, META), [])
 
+    def test_find_entries(self):
+        doc = readme.Readme(SAMPLE, META)
+        for query in ("https://www.alpha.example.com/", "alpha", "- [Alpha](https://alpha.example.com) - First tool."):
+            self.assertEqual([e.name for e in readme.find_entries(doc, query)], ["Alpha"], query)
+        self.assertEqual(readme.find_entries(doc, "nope"), [])
+
+    def test_apply_entry_diff_update_remove_and_idempotence(self):
+        doc = readme.Readme(SAMPLE, META)
+        alpha, gamma = doc.section("Software").entries
+        moved = readme.Entry("Alpha", alpha.url, "First tool.", -1, "Firmware & Controllers")
+        text, missing = readme.apply_entry_diff(SAMPLE, [alpha], [moved], META)
+        self.assertEqual(missing, [])
+        self.assertEqual([e.name for e in readme.Readme(text, META).section("Firmware & Controllers").entries], ["Alpha"])
+        self.assertEqual(readme.apply_entry_diff(text, [alpha], [moved], META)[0], text)
+        removed, added = readme.diff_entries(SAMPLE, text, META)
+        self.assertEqual(([e.section for e in removed], [e.section for e in added]), (["Software"], ["Firmware & Controllers"]))
+        # removing every entry of a section leaves tidy blank lines and still validates
+        text, _ = readme.apply_entry_diff(SAMPLE, [alpha, gamma], [], META)
+        self.assertNotIn("\n\n\n", text)
+        self.assertEqual([p for p in readme.validate(text, 160, META) if p.level == "error"], [])
+        # removing an entry that's already gone is reported
+        self.assertEqual(readme.apply_entry_diff(text, [alpha], [], META)[1], [alpha])
+
     def test_normalize_description(self):
         self.assertEqual(readme.normalize_description("a [cool](http://x) `tool` for cnc ", 160), "Cool tool for cnc.")
         long = readme.normalize_description("Word " * 60, 50)
@@ -144,9 +167,20 @@ class FormTests(unittest.TestCase):
 
     def test_template_labels_match_parser(self):
         cfg = config.load()
-        template = (config.REPO_ROOT / cfg.issue_form).read_text()
-        for label in forms.FIELD_LABELS.values():
-            self.assertIn(f"label: {label}", template)
+        for path, labels in ((cfg.issue_form, forms.FIELD_LABELS), (cfg.update_form, forms.UPDATE_LABELS)):
+            template = (config.REPO_ROOT / path).read_text()
+            for label in labels.values():
+                self.assertIn(f"label: {label}", template)
+        update = (config.REPO_ROOT / cfg.update_form).read_text()
+        self.assertIn(f"- {forms.ACTION_CHANGE}", update)
+        self.assertIn(f"- {forms.ACTION_REMOVE}", update)
+
+    def test_parse_update(self):
+        body = ("### Entry\n\nhttps://alpha.example.com\n\n### What should happen?\n\nRemove it from the list\n\n"
+                "### New link\n\n_No response_\n\n### New section\n\nNone\n\n### Why?\n\nArchived.\n")
+        req = forms.parse_update(body)
+        self.assertTrue(req.removing)
+        self.assertEqual((req.entry, req.new_url, req.new_section, req.reason), ("https://alpha.example.com", "", "", "Archived."))
 
 
 class AITests(unittest.TestCase):
@@ -199,6 +233,9 @@ class FakeGitHub:
     def create_pr(self, title, head, base, body):
         self.prs.append((title, head, body))
         return {"number": 99}
+    def merge_pr(self, n, title): self.merged = getattr(self, "merged", []) + [n]
+    def merge_base(self, base, head): return "merge-base"
+    def open_prs(self): return getattr(self, "pr_list", [])
     def upsert_comment(self, n, marker, body): self.comments.append(body)
     def add_labels(self, n, labels): self.labels_added += labels
     def remove_label(self, n, label): self.labels_removed.append(label)
@@ -256,6 +293,105 @@ class ProcessIssueTests(unittest.TestCase):
         gh = self.make(self.body(category="Nope"))
         cfg = self.run_issue(gh)
         self.assertIn(cfg.label("needs_changes"), gh.labels_added)
+
+
+def update_body(entry="https://alpha.example.com", action="Change it", new_url="", new_name="",
+                new_description="", new_section="", reason="Moved."):
+    fields = [("Entry", entry), ("What should happen?", action), ("New link", new_url), ("New name", new_name),
+              ("New description", new_description), ("New section", new_section), ("Why?", reason)]
+    return "\n\n".join(f"### {k}\n\n{v or '_No response_'}" for k, v in fields)
+
+
+class ProcessUpdateTests(unittest.TestCase):
+    def run_update(self, body, verdict="approve", confidence=0.95, old_ok=True, new_ok=True, auto_merge=False,
+                   labels=("entry update",), description=""):
+        issue = {"number": 8, "state": "open", "body": body, "user": {"login": "fixer"},
+                 "labels": [{"name": l} for l in labels]}
+        gh = FakeGitHub(issue, SAMPLE)
+        cfg = config.load()
+        cfg.meta_sections, cfg.auto_merge = list(META), auto_merge
+
+        def fake_check(url):
+            ok = old_ok if "alpha" in url else new_ok
+            link = mock.Mock(ok=ok, error="" if ok else "HTTP 404", status=200, final_url=url, title="", description="")
+            link.summary.return_value = "reachable" if ok else "HTTP 404"
+            return link
+
+        assessment = ai.Assessment(verdict=verdict, confidence=confidence, description=description, model="m")
+        with mock.patch.object(commands, "check_url", side_effect=fake_check), \
+             mock.patch.object(commands.ai, "assess_change", return_value=assessment) as judged:
+            commands.process_issue(cfg, gh, 8)
+        return gh, cfg, judged
+
+    def branch_text(self, gh, cfg):
+        return gh.files.get(cfg.bot_branch_prefix + "8", "")
+
+    def test_change_link_and_description(self):
+        gh, cfg, _ = self.run_update(update_body(new_url="https://alpha.example.org", new_description="first tool, moved"),
+                                     description="First tool, now on a new site.")
+        self.assertEqual(gh.prs[0][0], "Update Alpha")
+        text = self.branch_text(gh, cfg)
+        self.assertIn("- [Alpha](https://alpha.example.org) - First tool, now on a new site.", text)
+        self.assertNotIn("https://alpha.example.com)", text)
+        self.assertIn("```diff", gh.comments[-1])
+
+    def test_move_section(self):
+        gh, cfg, _ = self.run_update(update_body(new_section="Firmware & Controllers"))
+        self.assertEqual(gh.prs[0][0], "Move Alpha to Firmware & Controllers")
+        doc = readme.Readme(self.branch_text(gh, cfg), META)
+        self.assertEqual([e.name for e in doc.section("Firmware & Controllers").entries], ["Alpha"])
+
+    def test_problems_block_without_ai(self):
+        cases = [
+            (update_body(entry="nope"), "Couldn't find that entry"),
+            (update_body(), "Nothing would change"),
+            (update_body(new_url="https://gamma.example.com"), "already on the list"),
+            (update_body(new_section="Nope"), "Unknown **New section**"),
+        ]
+        for body, message in cases:
+            gh, cfg, judged = self.run_update(body)
+            self.assertEqual(gh.prs, [], message)
+            self.assertIn(message, gh.comments[-1])
+            self.assertIn(cfg.label("needs_changes"), gh.labels_added)
+            judged.assert_not_called()
+
+    def test_removal_of_dead_link_opens_pr_but_never_auto_merges(self):
+        gh, cfg, _ = self.run_update(update_body(action="Remove it from the list", reason="Gone."),
+                                     verdict="needs_review", old_ok=False, auto_merge=True)
+        self.assertEqual(gh.prs[0][0], "Remove Alpha")
+        self.assertNotIn("alpha.example.com", self.branch_text(gh, cfg))
+        self.assertFalse(getattr(gh, "merged", []))
+
+    def test_removal_of_working_link_needs_review(self):
+        gh, cfg, _ = self.run_update(update_body(action="Remove it from the list", reason="Competitor."),
+                                     verdict="needs_review", confidence=0.6)
+        self.assertEqual(gh.prs, [])
+        self.assertIn(cfg.label("ai_needs_review"), gh.labels_added)
+
+    def test_change_auto_merges_when_enabled(self):
+        gh, cfg, _ = self.run_update(update_body(new_name="Alpha Pro"), auto_merge=True)
+        self.assertEqual(gh.merged, [99])
+
+
+class RefreshTests(unittest.TestCase):
+    def test_rebases_update_onto_new_main(self):
+        cfg = config.load()
+        cfg.meta_sections = list(META)
+        alpha = readme.Readme(SAMPLE, META).section("Software").entries[0]
+        updated = readme.Entry("Alpha", alpha.url, "Better description.", -1, "Software")
+        head_text, _ = readme.apply_entry_diff(SAMPLE, [alpha], [updated], META)
+        main_text = readme.insert_entry(SAMPLE, "Software", "Beta", "https://beta.example.com", "Second tool.", META)
+        gh = FakeGitHub({}, main_text)
+        gh.files = {"merge-base": SAMPLE, "head-sha": head_text}
+        branch = cfg.bot_branch_prefix + "8"
+        gh.pr_list = [{"number": 5, "title": "Update Alpha", "head": {"ref": branch, "sha": "head-sha", "repo": {"full_name": gh.repo}}}]
+        commands.refresh_bot_prs(cfg, gh)
+        rebased = readme.Readme(gh.files[branch], META)
+        self.assertEqual([e.render() for e in rebased.section("Software").entries], [
+            "- [Alpha](https://alpha.example.com) - Better description.",
+            "- [Beta](https://beta.example.com) - Second tool.",
+            "- [Gamma](https://gamma.example.com/) - Third tool.",
+        ])
 
 
 if __name__ == "__main__":

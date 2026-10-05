@@ -290,3 +290,50 @@ def fix(text, meta_sections):
         block = [""] + block
     lines[start:end] = block
     return "\n".join(lines)
+
+
+def find_entries(readme, query):
+    """Entries matching a pasted link, a full entry line, or an exact name."""
+    query = (query or "").strip().strip("<>").strip()
+    if m := ENTRY_RE.match(query):
+        query = m["url"]
+    if is_valid_url(query):
+        key = normalize_url(query)
+        return [e for e in readme.entries() if normalize_url(e.url) == key]
+    name = sanitize_name(query).casefold()
+    return [e for e in readme.entries() if e.name.casefold() == name] if name else []
+
+
+def diff_entries(before_text, after_text, meta_sections):
+    """(removed, added) entries between two versions of the README, compared line by line."""
+    before = Readme(before_text, meta_sections).entries()
+    after = Readme(after_text, meta_sections).entries()
+    before_keys = {(e.section, e.render()) for e in before}
+    after_keys = {(e.section, e.render()) for e in after}
+    return ([e for e in before if (e.section, e.render()) not in after_keys],
+            [e for e in after if (e.section, e.render()) not in before_keys])
+
+
+def apply_entry_diff(text, removed, added, meta_sections):
+    """Remove entries (matched by link) and insert new ones in alphabetical order.
+
+    Returns (new_text, missing) where `missing` lists removals whose link is no longer on the list.
+    Re-applying a change that's already in `text` returns `text` unchanged.
+    """
+    doc = Readme(text, meta_sections)
+    lines, missing, doomed = list(doc.lines), [], set()
+    for entry in removed:
+        match = doc.find_url(entry.url)
+        if match:
+            doomed.add(match.line)
+        else:
+            missing.append(entry)
+    for i in sorted(doomed, reverse=True):
+        del lines[i]
+        if 0 < i < len(lines) and not lines[i - 1].strip() and not lines[i].strip():
+            del lines[i]  # don't leave two blank lines behind in an emptied section
+    text = "\n".join(lines)
+    for entry in added:
+        if not Readme(text, meta_sections).find_url(entry.url):
+            text = insert_entry(text, entry.section, entry.name, entry.url, entry.description, meta_sections)
+    return text, missing

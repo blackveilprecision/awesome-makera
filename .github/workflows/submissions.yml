@@ -1,5 +1,5 @@
-# Checks resources suggested through the "Suggest a resource" issue form, posts the result,
-# and opens a pull request adding approved entries. See MAINTAINERS.md.
+# Checks "Suggest a resource" and "Fix or remove an entry" issue forms, posts the result,
+# and opens a pull request with the change once it's approved. See MAINTAINERS.md.
 name: Submissions
 
 on:
@@ -17,9 +17,10 @@ concurrency:
 
 jobs:
   process:
-    # Label names here must match "submission" and "approved" in .github/awesome-bot.json.
+    # Label names here must match "submission", "update" and "approved" in .github/awesome-bot.json.
     if: >-
-      contains(github.event.issue.labels.*.name, 'submission') &&
+      (contains(github.event.issue.labels.*.name, 'submission') ||
+       contains(github.event.issue.labels.*.name, 'entry update')) &&
       (github.event.action != 'labeled' || github.event.label.name == 'approved')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -31,7 +32,7 @@ jobs:
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
 
-      - name: Check submission
+      - name: Check submission or update request
         run: python3 -m awesome_bot process-issue --issue "$ISSUE"
         env:
           ISSUE: ${{ github.event.issue.number }}

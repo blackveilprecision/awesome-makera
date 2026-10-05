@@ -1,20 +1,22 @@
 # Maintainer guide
 
-This list runs itself as much as possible. Contributors fill in an issue form, a bot checks the suggestion and asks GitHub Copilot whether it belongs, and approved entries arrive as ready-to-merge pull requests. You mostly just click **Merge**, or let the bot merge for you.
+This list runs itself as much as possible. Contributors fill in an issue form to suggest a resource or to fix or remove an entry. A bot checks it and asks GitHub Copilot whether it belongs, and approved changes arrive as ready-to-merge pull requests. You mostly just click **Merge**, or let the bot merge for you.
 
 ## How it works
 
 ```
-Issue form ("Suggest a resource")            Pull request from a contributor
+Issue forms: "Suggest a resource"            Pull request from a contributor
+             "Fix or remove an entry"
         │                                              │
         ▼                                              ▼
  submissions.yml                                pr-review.yml
-  • link reachable? duplicate? valid category?   • README checks (format, order, duplicates, ToC)
-  • Copilot relevance review → JSON verdict      • link check + Copilot review of each added entry
-  • writes the entry description                 • one summary comment + a label (never merges)
-  • comment + label on the issue
+  • finds the entry (updates), checks links,     • README checks (format, order, duplicates, ToC)
+    duplicates and the section                   • link check + Copilot review of each added entry
+  • Copilot review → JSON verdict                • one summary comment + a label (never merges)
+  • builds the entry from the fixed template
+  • comment (with a diff for updates) + label
         │
-        ├─ approved (high confidence) ─▶ bot opens PR "Add <name>" (Closes #issue)
+        ├─ approved (high confidence) ─▶ bot opens PR "Add/Update/Move/Remove <name>" (Closes #issue)
         ├─ needs review ─▶ you add the `approved` label ─▶ bot opens the PR
         └─ needs changes / rejected ─▶ submitter edits the issue ─▶ re-checked automatically
 
@@ -42,6 +44,7 @@ All the logic lives in `.github/scripts/awesome_bot/`: plain Python 3 with no de
 |---|---|
 | A bot PR "Add …" | Read the entry in the PR body and merge. (Approve the CI run first if GitHub asks.) |
 | Issue labelled `ai: needs review` | Decide. Add `approved` to accept (the bot opens the PR) or close the issue to decline. |
+| A bot PR "Remove …" | Check the reason in the PR body. Removals are never merged automatically, even with `auto_merge` on. |
 | Issue labelled `ai: rejected` | Usually close it. Add `approved` if the bot got it wrong. |
 | Issue labelled `needs changes` | Nothing. The submitter edits the issue and it's re-checked. |
 | Wrong category or wording on an issue | Edit the issue form fields yourself. The bot re-checks and updates its PR. |
@@ -65,7 +68,8 @@ The bot creates these automatically on first run.
 
 | Label | Meaning |
 |---|---|
-| `submission` | Added by the issue form. Only issues with it are processed. |
+| `submission` | Added by the "Suggest a resource" form. |
+| `entry update` | Added by the "Fix or remove an entry" form. Only issues with one of these two labels are processed. |
 | `approved` | **Maintainers only.** Forces the bot to open the PR whatever the automated verdict. |
 | `ai: approved` / `ai: needs review` / `ai: rejected` | Automated verdict (issues and PRs). |
 | `needs changes` | A blocking problem: broken link, duplicate, bad format. |
@@ -89,10 +93,11 @@ The bot creates these automatically on first run.
 - `pr-review.yml` uses `pull_request_target` but only checks out the base branch. The PR's README is fetched through the API and parsed as text, never executed.
 - Contributor PRs are never merged automatically, and PRs that touch `.github/` are always flagged for manual review.
 - The bot only edits `README.md`, on `awesome-bot/issue-*` branches.
+- Removal requests are never merged automatically. A removal PR is opened without a maintainer only when the entry's current link is verifiably dead.
 
 ## Costs
 
-Each issue submission or edit uses one Copilot request, and each contributor PR push uses one request per added entry (at most 10). Everything else is ordinary Actions minutes, which are free for public repositories.
+Each submission or update request (and each edit of one) uses one Copilot request, and each contributor PR push uses one request per added entry (at most 10). Everything else is ordinary Actions minutes, which are free for public repositories.
 
 ## Troubleshooting
 

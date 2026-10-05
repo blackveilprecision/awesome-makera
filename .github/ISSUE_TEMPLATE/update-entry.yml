@@ -1,31 +1,78 @@
 name: Fix or remove an entry
-description: Report a broken link, outdated description, wrong category or an entry that no longer belongs.
+description: Fix a broken link, outdated description, name or section, or ask for an entry to be removed. A bot checks it and opens the pull request.
 title: "Update: "
 labels: ["entry update"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill in only what should change. A bot finds the entry, applies your change, checks the links, runs an automated review, and opens the pull request for you.
+
+        You can edit this issue at any time. The bot re-checks it automatically. Removals are always confirmed by a maintainer.
   - type: input
     id: entry
     attributes:
       label: Entry
-      description: Name of the entry as it appears in the list.
+      description: The entry's current link, copied from the list. Its exact name works too.
+      placeholder: https://github.com/MakeraInc/CarveraController
     validations:
       required: true
   - type: dropdown
-    id: problem
+    id: action
     attributes:
-      label: What's wrong?
+      label: What should happen?
       options:
-        - Broken or moved link
-        - Description is wrong or outdated
-        - Wrong category
-        - Project is abandoned or no longer relevant
-        - Something else
+        - Change it
+        - Remove it from the list
     validations:
       required: true
-  - type: textarea
-    id: details
+  - type: input
+    id: new_url
     attributes:
-      label: Details
-      description: The new link, a better description, or anything else that helps.
+      label: New link
+      description: Leave empty to keep the current link.
     validations:
       required: false
+  - type: input
+    id: new_name
+    attributes:
+      label: New name
+      description: Leave empty to keep the current name.
+    validations:
+      required: false
+  - type: textarea
+    id: new_description
+    attributes:
+      label: New description
+      description: One sentence. Leave empty to keep the current description. The bot may tidy the wording.
+    validations:
+      required: false
+  - type: dropdown
+    id: new_section
+    attributes:
+      label: New section
+      description: Leave empty to keep the current section.
+      options:
+        # categories:start
+        - "Official Resources"
+        - "Machines"
+        - "Software"
+        - "Firmware"
+        - "CAM & Post-Processors"
+        - "Accessories"
+        - "Upgrades & Printable Mods"
+        - "Tooling & Workholding"
+        - "Guides & Tutorials"
+        - "Videos"
+        - "Communities"
+        - "Related Lists"
+        # categories:end
+    validations:
+      required: false
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why?
+      description: For example "the project moved to a new site" or "archived since 2021, no releases".
+    validations:
+      required: true

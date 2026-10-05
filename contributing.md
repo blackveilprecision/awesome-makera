@@ -15,7 +15,9 @@ Fill in the form: name, link, category and a one-line description. You don't nee
 
 If the bot asks for changes, just **edit your issue**. It re-checks on every edit. The automated review is only advisory: a maintainer always makes the final call.
 
-To fix or remove an existing entry, use the **[Fix or remove an entry](https://github.com/blackveilprecision/awesome-makera/issues/new?template=update-entry.yml)** form.
+## Fixing or removing an entry
+
+Use the **[Fix or remove an entry](https://github.com/blackveilprecision/awesome-makera/issues/new?template=update-entry.yml)** form. Paste the entry's current link, choose **Change it** or **Remove it from the list**, fill in only what should change (new link, name, description or section), and say why. The bot finds the entry, checks the links, runs the same automated review, and opens the pull request. Removals are always confirmed by a maintainer.
 
 ## What belongs here
 
