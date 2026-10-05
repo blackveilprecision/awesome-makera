@@ -37,6 +37,7 @@ Official and community software, firmware, post-processors, mods, workholding, g
 
 ## Software
 
+- [BVP Z1-Macros](https://github.com/blackveilprecision/z1-macros) - Open-source G-code utilities for leveling stock, tool changes, and other Z1 workflow tasks.
 - [Carve Control](https://github.com/GridSpace/carve-control) - Open-source web-based controller and network proxy for remote access to Carvera machines.
 - [Carvera Controller](https://github.com/MakeraInc/CarveraController) - Official open-source controller for Carvera and Carvera Air on desktop and mobile.
 - [Carvera Controller Community](https://github.com/Carvera-Community/Carvera_Controller) - Open-source community fork of the controller with advanced probing, pendant support and many fixes.
