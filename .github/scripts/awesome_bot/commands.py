@@ -14,6 +14,7 @@ MAX_AI_ENTRIES_PER_PR = 10
 AUTOMATION_PATHS = (".github/",)
 
 STATUS_LABELS = ("needs_changes", "ai_approved", "ai_needs_review", "ai_rejected")
+TRUSTED_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
 LABEL_STYLE = {
     "submission": ("0e8a16", "New resource suggested through the issue form"),
     "approved": ("1d76db", "Maintainer approved: the bot will open a PR adding it"),
@@ -60,14 +61,24 @@ def process_issue(cfg, gh, number, force=False):
     if "pull_request" in issue or issue["state"] != "open" or not kind:
         print(f"#{number} is not an open submission or update request; nothing to do.")
         return
-    force = force or cfg.label("approved") in labels
     ensure_labels(cfg, gh)
+    notes = []
+    approved = cfg.label("approved")
+    if (approved in labels and os.environ.get("EVENT_ACTION") == "edited"
+            and os.environ.get("EVENT_SENDER") == issue["user"]["login"]
+            and issue.get("author_association") not in TRUSTED_ASSOCIATIONS):
+        # An approval covers the version a maintainer saw, not whatever the author changes it to later.
+        gh.remove_label(number, approved)
+        labels.discard(approved)
+        notes.append(f"The issue was edited after approval, so the `{approved}` label was removed. "
+                     "A maintainer needs to approve the new version.")
+    force = force or approved in labels
     if cfg.label(kind) not in labels:
         # GitHub only applies an issue form's label if the label already exists, so add it ourselves.
         gh.add_labels(number, [cfg.label(kind)])
         labels.add(cfg.label(kind))
     if kind == "update":
-        return process_update(cfg, gh, issue, labels, force)
+        return process_update(cfg, gh, issue, labels, force, notes)
 
     sub = forms.parse_submission(issue.get("body"))
     base = gh.default_branch()
@@ -75,7 +86,7 @@ def process_issue(cfg, gh, number, force=False):
     doc = readme.Readme(readme_text, cfg.meta_sections)
     categories = doc.category_titles
 
-    problems, notes = [], []
+    problems = []
     name = readme.sanitize_name(sub.name)
     url = sub.url.strip().strip("<>")
     section = match_category(sub.category, categories)
@@ -270,7 +281,7 @@ def render_pr_body(entry, issue, assessment, link):
 
 # --------------------------------------------------------------------------- update requests
 
-def process_update(cfg, gh, issue, labels, force):
+def process_update(cfg, gh, issue, labels, force, notes):
     """Check a "Fix or remove an entry" request, post the result, and open a PR when it's approved."""
     number = issue["number"]
     request = forms.parse_update(issue.get("body"))
@@ -278,7 +289,7 @@ def process_update(cfg, gh, issue, labels, force):
     readme_text, _ = gh.get_file(cfg.readme, base)
     doc = readme.Readme(readme_text, cfg.meta_sections)
     categories = doc.category_titles
-    problems, notes = [], []
+    problems = []
 
     matches = readme.find_entries(doc, request.entry)
     old = matches[0] if len(matches) == 1 else None

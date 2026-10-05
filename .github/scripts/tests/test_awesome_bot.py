@@ -252,7 +252,7 @@ class ProcessIssueTests(unittest.TestCase):
                  "labels": [{"name": l} for l in labels]}
         return FakeGitHub(issue, SAMPLE)
 
-    def run_issue(self, gh, verdict="approve", confidence=0.95, link_ok=True):
+    def run_issue(self, gh, verdict="approve", confidence=0.95, link_ok=True, env=None):
         cfg = config.load()
         cfg.meta_sections = list(META)
         link = mock.Mock(ok=link_ok, error="", status=200, final_url="", title="", description="")
@@ -261,7 +261,7 @@ class ProcessIssueTests(unittest.TestCase):
                                    description="Second tool.", model="m")
         with mock.patch.object(commands, "check_url", return_value=link), \
              mock.patch.object(commands.ai, "assess", return_value=assessment), \
-             mock.patch.dict("os.environ", {"GITHUB_TOKEN": "t"}):
+             mock.patch.dict("os.environ", {"GITHUB_TOKEN": "t", **(env or {})}):
             commands.process_issue(cfg, gh, 7)
         return cfg
 
@@ -292,6 +292,21 @@ class ProcessIssueTests(unittest.TestCase):
     def test_maintainer_approval_overrides_ai(self):
         gh = self.make(self.body(), labels=("submission", "approved"))
         self.run_issue(gh, verdict="reject", confidence=0.9, link_ok=None)
+        self.assertEqual(len(gh.prs), 1)
+
+    def test_author_edit_after_approval_revokes_it(self):
+        gh = self.make(self.body(), labels=("submission", "approved"))
+        gh.issue["author_association"] = "NONE"
+        cfg = self.run_issue(gh, verdict="reject", confidence=0.9, env={"EVENT_ACTION": "edited", "EVENT_SENDER": "maker"})
+        self.assertIn(cfg.label("approved"), gh.labels_removed)
+        self.assertEqual(gh.prs, [])
+        self.assertIn("edited after approval", gh.comments[-1])
+
+    def test_maintainer_edit_keeps_approval(self):
+        gh = self.make(self.body(), labels=("submission", "approved"))
+        gh.issue["author_association"] = "NONE"
+        cfg = self.run_issue(gh, verdict="reject", env={"EVENT_ACTION": "edited", "EVENT_SENDER": "maintainer"})
+        self.assertNotIn(cfg.label("approved"), gh.labels_removed)
         self.assertEqual(len(gh.prs), 1)
 
     def test_form_issue_without_label_is_labelled_and_processed(self):

@@ -48,6 +48,8 @@ jobs:
         run: python3 -m awesome_bot process-issue --issue "$ISSUE"
         env:
           ISSUE: ${{ github.event.issue.number || inputs.issue }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_SENDER: ${{ github.event.sender.login }}
           PYTHONPATH: .github/scripts
           GITHUB_TOKEN: ${{ github.token }}
           # Optional: bill AI usage to a specific Copilot seat instead (fine-grained PAT, "Copilot Requests" permission).

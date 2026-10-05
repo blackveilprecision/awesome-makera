@@ -92,6 +92,7 @@ The bot creates these automatically on first run.
 - Submissions and PR contents are untrusted. They reach the model only as data, and the model runs with **no tools, no MCP servers and an empty working directory** (`--available-tools=none --disable-builtin-mcps`). The worst a prompt injection can do is skew the JSON verdict. That verdict is validated, its text is sanitised before it's posted, and it can't trigger a merge unless you turn on `auto_merge`.
 - `pr-review.yml` uses `pull_request_target` but only checks out the base branch. The PR's README is fetched through the API and parsed as text, never executed.
 - Contributor PRs are never merged automatically, and PRs that touch `.github/` are always flagged for manual review.
+- Only people with Triage access or higher can add labels, so only maintainers can apply `approved`. If the author edits an approved issue afterwards, the bot removes `approved` and a maintainer has to approve the new version.
 - The bot only edits `README.md`, on `awesome-bot/issue-*` branches.
 - Removal requests are never merged automatically. A removal PR is opened without a maintainer only when the entry's current link is verifiably dead.
 
