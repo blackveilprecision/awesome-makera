@@ -64,6 +64,7 @@ Official and community software, firmware, post-processors, mods, workholding, g
 ## Macros & Utilities
 
 - [BVP Z1-Macros](https://github.com/blackveilprecision/z1-macros) - Open-source G-code utilities for leveling stock, tool changes, and other Z1 workflow tasks.
+- [cnc-facing](https://facing.nottseter.no/) - Generates Z1 facing toolpaths for spoilboards, fixture plates, and stock flattening without a CAM workflow. ([Source code](https://github.com/nilsan/cnc-facing))
 
 ## Accessories
 
