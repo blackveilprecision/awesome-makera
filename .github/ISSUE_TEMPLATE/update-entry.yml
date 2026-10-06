@@ -34,6 +34,13 @@ body:
     validations:
       required: false
   - type: input
+    id: new_source
+    attributes:
+      label: New source code link
+      description: Optional. Adds or replaces the entry's source-code link (for web apps and sites). Type "remove" to drop it.
+    validations:
+      required: false
+  - type: input
     id: new_name
     attributes:
       label: New name

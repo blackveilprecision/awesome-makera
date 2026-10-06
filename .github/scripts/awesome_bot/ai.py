@@ -37,6 +37,8 @@ Verdict "approve" only when ALL of these hold:
   marketplace listing, affiliate link, link shortener, scraped copy, or SEO/content-farm article;
 - it is not a duplicate of an existing entry (compare against the existing names provided);
 - it fits the chosen category (if not, still approve but put the better category in "category").
+When a separate source-code link is given, the main link may be the project's website or web app;
+that is expected.
 Verdict "needs_review" when it is plausible but you are unsure: niche, little information available,
 commercial with unclear value, possible self-promotion of a small or brand-new project, or the page
 could not be read. Verdict "reject" for off-topic content, spam, low-effort pages, or anything harmful.
@@ -61,6 +63,7 @@ Categories (choose one exactly as written):
 <submission>
 Name: {name}
 Link: {url}
+Source code: {source}
 Category chosen by submitter: {category}
 Pricing: {pricing}
 Submitter's description: {description}
@@ -120,6 +123,7 @@ Categories:
 Section: {section}
 Name: {name}
 Link: {url}
+Source code: {source}
 Description: {description}
 </entry>
 
@@ -132,6 +136,7 @@ Requested action: {action}
 New section: {new_section}
 New name: {new_name}
 New link: {new_url}
+New source code link: {new_source}
 New description: {new_description}
 Reason given: {reason}
 </change>
@@ -251,6 +256,7 @@ def assess(cfg, submission, categories, existing_names, link, pr_description="")
         categories="\n".join(f"- {c}" for c in categories),
         name=_untrusted(submission.name, 120),
         url=_untrusted(submission.url, 500),
+        source=_untrusted(submission.source, 500) or "(none)",
         category=category or "(none / not sure)",
         pricing=_untrusted(submission.pricing, 60) or "unknown",
         description=_untrusted(submission.description, 600) or "(none)",
@@ -279,11 +285,13 @@ def assess_change(cfg, old, new, request, categories, old_link, new_link):
     user = CHANGE_USER_PROMPT.format(
         categories="\n".join(f"- {c}" for c in categories),
         section=old.section, name=_untrusted(old.name, 120), url=_untrusted(old.url, 500),
+        source=_untrusted(old.source, 500) or "(none)",
         description=_untrusted(old.description, 300), old_page=page(old_link),
         action="remove the entry" if new is None else "change the entry",
         new_section=new.section if new else "-",
         new_name=_untrusted(new.name, 120) if new else "-",
         new_url=_untrusted(new.url, 500) if new else "-",
+        new_source=(_untrusted(new.source, 500) or "(none)") if new else "-",
         new_description=_untrusted(request.new_description, 600) or "(unchanged)",
         reason=_untrusted(request.reason, 1200) or "(none given)",
         new_page=page(new_link),

@@ -122,6 +122,23 @@ class ReadmeTests(unittest.TestCase):
         # removing an entry that's already gone is reported
         self.assertEqual(readme.apply_entry_diff(text, [alpha], [], META)[1], [alpha])
 
+    def test_source_code_links(self):
+        line = "- [Web](https://web.example.com) - Browser app. ([Source code](https://github.com/o/web))"
+        text = SAMPLE.replace("- [Gamma](https://gamma.example.com/) - Third tool.",
+                              "- [Gamma](https://gamma.example.com/) - Third tool.\n" + line)
+        doc = readme.Readme(text, META)
+        web = doc.section("Software").entries[-1]
+        self.assertEqual((web.description, web.source, web.render()), ("Browser app.", "https://github.com/o/web", line))
+        self.assertIs(doc.find_url("https://github.com/O/web/"), web)
+        self.assertEqual([p.message for p in readme.validate(text, 160, META) if p.level == "error"], [])
+        dup = text.replace("https://github.com/o/web", "https://alpha.example.com")
+        self.assertTrue(any("Duplicate link" in p.message for p in readme.validate(dup, 160, META)))
+        self.assertTrue(readme.check_entry("Web", "https://w.example.com", "Browser.", 160, "https://w.example.com/"))
+        moved, _ = readme.apply_entry_diff(text, [web], [readme.Entry("Web", web.url, "Browser app.", -1, "Related Lists", web.source)], META)
+        self.assertIn(line, moved.split("## Related Lists")[1])
+        self.assertEqual(readme.find_repo_link("See https://github.com/o/r. Thanks", exclude="https://x.example.com"), "https://github.com/o/r")
+        self.assertEqual(readme.normalize_description("tool for cnc https://github.com/o/r", 160), "Tool for cnc.")
+
     def test_normalize_description(self):
         self.assertEqual(readme.normalize_description("a [cool](http://x) `tool` for cnc ", 160), "Cool tool for cnc.")
         long = readme.normalize_description("Word " * 60, 50)
@@ -297,6 +314,14 @@ class ProcessIssueTests(unittest.TestCase):
         self.assertIn(cfg.label("ai_approved"), gh.labels_added)
         self.assertIn("Opened #99", gh.comments[-1])
 
+    def test_repository_in_description_becomes_source_link(self):
+        body = self.body(url="https://beta.example.com").replace(
+            "Web-based interface.", "Web app for CNC. Code: https://github.com/o/beta")
+        gh = self.make(body)
+        cfg = self.run_issue(gh)
+        self.assertIn("- [Beta](https://beta.example.com) - Second tool. ([Source code](https://github.com/o/beta))",
+                      gh.files[cfg.bot_branch_prefix + "7"])
+
     def test_duplicate_is_flagged_without_ai(self):
         gh = self.make(self.body(url="https://www.alpha.example.com/"))
         cfg = self.run_issue(gh)
@@ -348,8 +373,9 @@ class ProcessIssueTests(unittest.TestCase):
 
 
 def update_body(entry="https://alpha.example.com", action="Change it", new_url="", new_name="",
-                new_description="", new_section="", reason="Moved."):
-    fields = [("Entry", entry), ("What should happen?", action), ("New link", new_url), ("New name", new_name),
+                new_description="", new_section="", reason="Moved.", new_source=""):
+    fields = [("Entry", entry), ("What should happen?", action), ("New link", new_url),
+              ("New source code link", new_source), ("New name", new_name),
               ("New description", new_description), ("New section", new_section), ("Why?", reason)]
     return "\n\n".join(f"### {k}\n\n{v or '_No response_'}" for k, v in fields)
 
@@ -386,6 +412,21 @@ class ProcessUpdateTests(unittest.TestCase):
         self.assertIn("- [Alpha](https://alpha.example.org) - First tool, now on a new site.", text)
         self.assertNotIn("https://alpha.example.com)", text)
         self.assertIn("```diff", gh.comments[-1])
+
+    def test_add_and_remove_source_link(self):
+        gh, cfg, _ = self.run_update(update_body(new_source="https://github.com/o/alpha"))
+        self.assertIn("- [Alpha](https://alpha.example.com) - First tool. ([Source code](https://github.com/o/alpha))",
+                      self.branch_text(gh, cfg))
+        with_source = SAMPLE.replace("First tool.", "First tool. ([Source code](https://github.com/o/alpha))")
+        issue = {"number": 8, "state": "open", "body": update_body(new_source="remove"), "user": {"login": "fixer"},
+                 "labels": [{"name": "entry update"}]}
+        gh = FakeGitHub(issue, with_source)
+        ok = mock.Mock(ok=True, error="", status=200, final_url="", title="", description="")
+        ok.summary.return_value = "reachable"
+        with mock.patch.object(commands, "check_url", return_value=ok), \
+             mock.patch.object(commands.ai, "assess_change", return_value=ai.Assessment(verdict="approve", confidence=0.9, model="m")):
+            commands.process_issue(cfg, gh, 8)
+        self.assertIn("- [Alpha](https://alpha.example.com) - First tool.\n", gh.files[cfg.bot_branch_prefix + "8"])
 
     def test_move_section(self):
         gh, cfg, _ = self.run_update(update_body(new_section="Firmware & Controllers"))

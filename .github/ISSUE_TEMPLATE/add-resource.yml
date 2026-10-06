@@ -25,6 +25,14 @@ body:
       placeholder: https://github.com/Carvera-Community/Carvera_Controller
     validations:
       required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source code
+      description: Optional. If the link above is a website or web app, link its source repository here.
+      placeholder: https://github.com/owner/project
+    validations:
+      required: false
   - type: dropdown
     id: category
     attributes:

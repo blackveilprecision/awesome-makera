@@ -6,7 +6,7 @@ This repository is a curated "awesome list" about Makera desktop CNC machines (C
 
 Check every added or changed entry and flag:
 
-- **Format:** each entry must be exactly `- [Name](https://link) - Description.` with a plain ` - ` separator (not an en or em dash).
+- **Format:** each entry must be exactly `- [Name](https://link) - Description.` with a plain ` - ` separator (not an en or em dash). Entries whose main link is a website or web app may end with an optional source link: `- [Name](https://app) - Description. ([Source code](https://repo))`.
 - **Description style:** one sentence, starts with a capital letter, ends with a period, under 160 characters. It must not start with "A", "An" or the entry's own name, and must not use marketing superlatives ("best", "ultimate", "powerful").
 - **Order:** entries are alphabetical (case-insensitive) within each `##` section.
 - **Relevance:** the resource must be specific to Makera machines: software, controllers, firmware, CAM workflows and post-processors, upgrades, printable mods, tooling, guides, videos or communities. Flag generic CNC content with no Makera angle (it belongs in Awesome CNC), general 3D printing, reseller and off-topic links.
