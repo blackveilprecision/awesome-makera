@@ -7,6 +7,7 @@ from dataclasses import dataclass
 FIELD_LABELS = {
     "name": "Name",
     "url": "Link",
+    "source": "Source code",
     "category": "Category",
     "description": "Description",
     "pricing": "Pricing",
@@ -19,6 +20,7 @@ UPDATE_LABELS = {
     "entry": "Entry",
     "action": "What should happen?",
     "new_url": "New link",
+    "new_source": "New source code link",
     "new_name": "New name",
     "new_description": "New description",
     "new_section": "New section",
@@ -35,6 +37,7 @@ CATEGORIES_END = "# categories:end"
 class Submission:
     name: str = ""
     url: str = ""
+    source: str = ""
     category: str = ""
     description: str = ""
     pricing: str = ""
@@ -63,6 +66,7 @@ class UpdateRequest:
     entry: str = ""
     action: str = ""
     new_url: str = ""
+    new_source: str = ""
     new_name: str = ""
     new_description: str = ""
     new_section: str = ""

@@ -132,18 +132,37 @@ def process_issue(cfg, gh, number, force=False):
         problems.append(f"Already listed under **{duplicate.section}** as [{duplicate.name}]({duplicate.url}).")
     if not section and sub.category != forms.NOT_SURE:
         problems.append(f"Unknown **Category** \"{ai.clean_note(sub.category, 80)}\". Pick one from the dropdown.")
+    source = sub.source.strip().strip("<>")
+    if not source and (found := readme.find_repo_link(f"{sub.description}\n{sub.why}", exclude=url)):
+        source = found
+        notes.append(f"Using the repository mentioned in the submission as the source-code link: {found}")
+    if source and is_valid_url(url) and normalize_url(source) == normalize_url(url):
+        source = ""  # the main link already is the repository
+    if source:
+        if not is_valid_url(source):
+            problems.append("**Source code** must be a full URL starting with `https://`.")
+        elif (other := doc.find_url(source)) and not duplicate:
+            problems.append(f"That source code is already listed under **{other.section}** as [{other.name}]({other.url}).")
+    sub.source = source
 
-    link = None
+    link = source_link = None
     if not problems:
-        link = check_url(url)
-        if link.ok is False:
-            (notes if force else problems).append(f"The link looks broken ({link.error}).")
-        elif link.ok is None:
-            notes.append(f"Couldn't verify the link automatically ({link.error}), so a maintainer will check it.")
+        for target in filter(None, (url, source)):
+            result = check_url(target)
+            what = "link" if target == url else "source-code link"
+            if result.ok is False:
+                (notes if force else problems).append(f"The {what} looks broken ({result.error}).")
+            elif result.ok is None:
+                notes.append(f"Couldn't verify the {what} automatically ({result.error}), so a maintainer will check it.")
+            if target == url:
+                link = result
+            else:
+                source_link = result
     log.section("Checks", [
         ("Duplicate", f"yes: {duplicate.name} in {duplicate.section}" if duplicate else "none"),
         ("Category", section or f"{sub.category} (Copilot will suggest one)"),
         *log.link_rows("Link", link, url),
+        *(log.link_rows("Source code", source_link, source) if source else []),
         ("Problems", problems),
     ])
 
@@ -167,16 +186,17 @@ def process_issue(cfg, gh, number, force=False):
     if not problems:
         description = (assessment and assessment.description) or readme.normalize_description(
             sub.description, cfg.max_description_length)
-        entry_problems = readme.check_entry(name, url, description, cfg.max_description_length)
+        entry_problems = readme.check_entry(name, url, description, cfg.max_description_length, source)
         problems += [p.message for p in entry_problems if p.level == "error"]
         notes += [p.message for p in entry_problems if p.level == "warning"]
-        proposal = readme.Entry(name, url, description, -1, section)
+        proposal = readme.Entry(name, url, description, -1, section, source)
 
     if problems:
         status = "needs_changes"
     elif force:
         status = "approved"
     elif (assessment.verdict == "approve" and not assessment.error and link and link.ok
+          and (source_link is None or source_link.ok)
           and assessment.confidence >= cfg.auto_approve_min_confidence):
         status = "ai_approved"
     elif assessment.verdict == "reject":
@@ -361,13 +381,28 @@ def process_update(cfg, gh, issue, labels, force, notes):
                 problems.append(f"That link is already on the list as [{other.name}]({other.url}).")
         description = (readme.normalize_description(request.new_description, cfg.max_description_length)
                        if request.new_description.strip() else old.description)
-        new = readme.Entry(readme.sanitize_name(request.new_name) or old.name, url, description, -1, section or old.section)
+        source = old.source
+        if new_source := request.new_source.strip().strip("<>"):
+            if new_source.casefold() in ("remove", "none", "-"):
+                source = ""
+            elif not is_valid_url(new_source):
+                problems.append("**New source code link** must be a full URL starting with `https://`, or \"remove\".")
+            elif (other := doc.find_url(new_source)) and other.line != old.line:
+                problems.append(f"That source code is already on the list as [{other.name}]({other.url}).")
+            else:
+                source = new_source
+        new = readme.Entry(readme.sanitize_name(request.new_name) or old.name, url, description, -1,
+                           section or old.section, source)
         if new.render() == old.render() and new.section == old.section:
             problems.append("Nothing would change. Fill in at least one of the **New** fields.")
 
     old_link = new_link = None
     if old and not problems:
         old_link = check_url(old.url)
+        if new and new.source and new.source != old.source:
+            source_check = check_url(new.source)
+            if source_check.ok is False:
+                (notes if force else problems).append(f"The new source-code link looks broken ({source_check.error}).")
         if new and new.url != old.url:
             new_link = check_url(new.url)
             if new_link.ok is False:
@@ -395,7 +430,7 @@ def process_update(cfg, gh, issue, labels, force, notes):
         if new and assessment.category and assessment.category != new.section:
             notes.append(f"Automated review suggests **{assessment.category}** for this entry.")
         if new:
-            entry_problems = readme.check_entry(new.name, new.url, new.description, cfg.max_description_length)
+            entry_problems = readme.check_entry(new.name, new.url, new.description, cfg.max_description_length, new.source)
             problems += [p.message for p in entry_problems if p.level == "error"]
             notes += [p.message for p in entry_problems if p.level == "warning"]
 
@@ -555,7 +590,7 @@ def review_pr(cfg, gh, number):
         link = check_url(entry.url)
         section = head_doc.section(entry.section)
         sub = forms.Submission(
-            name=entry.name, url=entry.url, category=entry.section, description=entry.description,
+            name=entry.name, url=entry.url, source=entry.source, category=entry.section, description=entry.description,
             affiliation="unknown",
         )
         existing = [e.name for e in section.entries if e is not entry]

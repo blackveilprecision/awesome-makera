@@ -39,6 +39,13 @@ Use the **[Fix or remove an entry](https://github.com/blackveilprecision/awesome
 - Mention "Open-source" or "Commercial" when it's relevant.
 - Keep it under 160 characters.
 - Entries are sorted alphabetically within each section.
+- If the main link is a website or web app and the project has a separate source repository, add it at the end:
+
+  ```markdown
+  - [Name](https://app.example.com) - Description. ([Source code](https://github.com/owner/project))
+  ```
+
+  In the form, put the repository in the optional **Source code** field.
 
 ## Sending a pull request instead
 

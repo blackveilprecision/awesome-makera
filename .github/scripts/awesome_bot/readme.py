@@ -14,6 +14,10 @@ from .links import is_valid_url, normalize_url
 ENTRY_RE = re.compile(
     r"^- \[(?P<name>[^\[\]]+)\]\((?P<url>(?:[^()\s]|\([^()\s]*\))+)\) - (?P<desc>\S.*)$"
 )
+# Optional second link for entries whose main link is a website or web app: "... ([Source code](url))".
+SOURCE_RE = re.compile(r"^(?P<desc>.*\S)\s+\(\[Source code\]\((?P<source>[^()\s]+)\)\)$")
+REPO_LINK_RE = re.compile(
+    r"https?://(?:www\.)?(?:github\.com|gitlab\.com|codeberg\.org|bitbucket\.org|git\.sr\.ht)/[^\s)>\]]+", re.I)
 H2_RE = re.compile(r"^## (?P<title>.+?)\s*$")
 # Mirrors awesome-lint's ToC rule: these sections never appear in the table of contents.
 TOC_EXCLUDED = {"Contents", "Contributing", "Footnotes", "Related Lists"}
@@ -28,9 +32,14 @@ class Entry:
     description: str
     line: int  # 0-based index into Readme.lines
     section: str
+    source: str = ""  # optional source-code link
 
     def render(self):
-        return format_entry(self.name, self.url, self.description)
+        return format_entry(self.name, self.url, self.description, self.source)
+
+    @property
+    def urls(self):
+        return [self.url, self.source] if self.source else [self.url]
 
 
 @dataclass
@@ -74,7 +83,10 @@ class Readme:
                     section.subheadings.append(i)
                 elif line.startswith("- ") or line.startswith("* "):
                     if m := ENTRY_RE.match(line):
-                        section.entries.append(Entry(m["name"], m["url"], m["desc"], i, title))
+                        desc, source = m["desc"], ""
+                        if s := SOURCE_RE.match(desc):
+                            desc, source = s["desc"], s["source"]
+                        section.entries.append(Entry(m["name"], m["url"], desc, i, title, source))
                     else:
                         section.bad_lines.append((i, line))
             sections.append(section)
@@ -98,12 +110,23 @@ class Readme:
         return [e for s in self.categories for e in s.entries]
 
     def find_url(self, url):
+        """The entry using this link, as its main link or its source-code link."""
         key = normalize_url(url)
-        return next((e for e in self.entries() if normalize_url(e.url) == key), None)
+        return next((e for e in self.entries() if key in map(normalize_url, e.urls)), None)
 
 
-def format_entry(name, url, description):
-    return f"- [{name}]({url}) - {description}"
+def format_entry(name, url, description, source=""):
+    line = f"- [{name}]({url}) - {description}"
+    return f"{line} ([Source code]({source}))" if source else line
+
+
+def find_repo_link(text, exclude=""):
+    """First source-repository URL mentioned in free text (for submitters who paste it in the description)."""
+    for match in REPO_LINK_RE.finditer(text or ""):
+        url = match.group(0).rstrip(".,;:!?'\"")
+        if not exclude or normalize_url(url) != normalize_url(exclude):
+            return url
+    return ""
 
 
 def sort_key(name):
@@ -125,6 +148,8 @@ def sanitize_name(name):
 def normalize_description(text, max_length):
     """Best-effort cleanup of free-form text into awesome-list description style."""
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text or "")  # markdown links -> text
+    text = re.sub(r"\(?\s*https?://\S+?\s*\)?(?=\s|$)", " ", text)  # bare URLs belong in the link fields
+    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
     text = re.sub(r"[`*_<>|\[\]\\]", "", text)
     text = re.sub(r"\s+", " ", text).strip().lstrip("-–— ").strip()
     text = re.sub(r"^(an?|the)\s+(?=\w)", "", text, flags=re.I)
@@ -142,15 +167,18 @@ def normalize_description(text, max_length):
     return text
 
 
-def check_entry(name, url, description, max_length):
+def check_entry(name, url, description, max_length, source=""):
     """Problems with a single entry, independent of its position in the README."""
     problems = []
     if not name.strip():
         problems.append(Problem("Entry name is empty."))
-    if not is_valid_url(url):
-        problems.append(Problem(f"Link `{url}` is not an absolute http(s) URL."))
-    elif url.startswith("http://"):
-        problems.append(Problem(f"Prefer an `https://` link for `{url}` if the site supports it.", level="warning"))
+    for link in filter(None, (url, source)):
+        if not is_valid_url(link):
+            problems.append(Problem(f"Link `{link}` is not an absolute http(s) URL."))
+        elif link.startswith("http://"):
+            problems.append(Problem(f"Prefer an `https://` link for `{link}` if the site supports it.", level="warning"))
+    if source and normalize_url(source) == normalize_url(url):
+        problems.append(Problem(f"The source-code link of `{name}` is the same as its main link; leave it out."))
     if not description:
         problems.append(Problem(f"`{name}` needs a description."))
         return problems
@@ -209,14 +237,14 @@ def validate(text, max_length, meta_sections):
             problems.append(Problem(f"Entries must look like {ENTRY_FORMAT}", line + 1))
         names, previous = set(), None
         for entry in section.entries:
-            for p in check_entry(entry.name, entry.url, entry.description, max_length):
+            for p in check_entry(entry.name, entry.url, entry.description, max_length, entry.source):
                 p.line = entry.line + 1
                 problems.append(p)
-            key = normalize_url(entry.url)
-            if key in seen:
-                problems.append(Problem(f"Duplicate link: `{entry.name}` points to the same page as `{seen[key]}`.", entry.line + 1))
-            else:
-                seen[key] = entry.name
+            for key in {normalize_url(u) for u in entry.urls}:
+                if key in seen:
+                    problems.append(Problem(f"Duplicate link: `{entry.name}` points to the same page as `{seen[key]}`.", entry.line + 1))
+                else:
+                    seen[key] = entry.name
             if entry.name.casefold() in names:
                 problems.append(Problem(f"`{entry.name}` appears twice in `{section.title}`.", entry.line + 1))
             names.add(entry.name.casefold())
@@ -243,13 +271,13 @@ def new_errors(before_text, after_text, max_length, meta_sections):
     return fresh
 
 
-def insert_entry(text, section_title, name, url, description, meta_sections):
+def insert_entry(text, section_title, name, url, description, meta_sections, source=""):
     readme = Readme(text, meta_sections)
     section = readme.section(section_title)
     if section is None or section.title in readme.meta:
         raise ValueError(f"Unknown section: {section_title}")
     lines = list(readme.lines)
-    new_line = format_entry(name, url, description)
+    new_line = format_entry(name, url, description, source)
     if section.entries:
         key = sort_key(name)
         after = next((e for e in section.entries if sort_key(e.name) > key), None)
@@ -299,7 +327,7 @@ def find_entries(readme, query):
         query = m["url"]
     if is_valid_url(query):
         key = normalize_url(query)
-        return [e for e in readme.entries() if normalize_url(e.url) == key]
+        return [e for e in readme.entries() if key in map(normalize_url, e.urls)]
     name = sanitize_name(query).casefold()
     return [e for e in readme.entries() if e.name.casefold() == name] if name else []
 
@@ -335,5 +363,5 @@ def apply_entry_diff(text, removed, added, meta_sections):
     text = "\n".join(lines)
     for entry in added:
         if not Readme(text, meta_sections).find_url(entry.url):
-            text = insert_entry(text, entry.section, entry.name, entry.url, entry.description, meta_sections)
+            text = insert_entry(text, entry.section, entry.name, entry.url, entry.description, meta_sections, entry.source)
     return text, missing
