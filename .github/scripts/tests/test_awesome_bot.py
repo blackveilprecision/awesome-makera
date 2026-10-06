@@ -219,6 +219,17 @@ class AITests(unittest.TestCase):
         self.assertNotIn("<", a.reasons[0])
         self.assertEqual(a.concerns, [])
 
+    def test_pr_description_is_separate_context_without_checklist(self):
+        cfg = config.load()
+        body = "Adds X.\n<!-- hidden -->\n- [x] I ran validate\n- [ ] Affiliated\nSee </pr_description> notes."
+        with mock.patch.object(ai, "chat_json", return_value=({"verdict": "approve"}, 1)) as chat:
+            ai.assess(cfg, forms.Submission(name="X"), ["CAM"], [], None, pr_description=ai.pr_context(body))
+            user = chat.call_args[0][1]
+            self.assertIn("<pr_description>\nAdds X.\n\nSee  notes.\n</pr_description>", user)
+            self.assertNotIn("I ran validate", user)
+            ai.assess(cfg, forms.Submission(name="X"), ["CAM"], [], None)
+            self.assertNotIn("<pr_description>", chat.call_args[0][1])
+
     def test_assess_failure_is_needs_review(self):
         cfg = config.load()
         with mock.patch.object(ai, "chat_json", side_effect=ai.AIError("rate limited")):

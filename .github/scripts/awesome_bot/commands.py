@@ -556,12 +556,12 @@ def review_pr(cfg, gh, number):
         section = head_doc.section(entry.section)
         sub = forms.Submission(
             name=entry.name, url=entry.url, category=entry.section, description=entry.description,
-            why=(pr.get("body") or "")[:1200], affiliation="unknown",
+            affiliation="unknown",
         )
         existing = [e.name for e in section.entries if e is not entry]
         log.section(f"Added entry: {entry.name}", [("Entry", entry.render()), ("Section", entry.section),
                                                    *log.link_rows("Link", link, entry.url)])
-        assessment = ai.assess(cfg, sub, categories, existing, link)
+        assessment = ai.assess(cfg, sub, categories, existing, link, pr_description=ai.pr_context(pr.get("body")))
         log.assessment_section(f"Copilot review: {entry.name}", assessment)
         results.append((entry, link, assessment))
 
